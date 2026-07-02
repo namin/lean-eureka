@@ -12,7 +12,8 @@ agrees.
 
 This is the "verified discovery system" instance of the
 [reasonable-reflection](https://github.com/namin/reasonable-reflection)
-pattern (substrate / gate / proposer).
+pattern (substrate / gate / proposer). [TUTORIAL.md](TUTORIAL.md) walks the
+artifact along the pattern's axes, one runnable stop at a time.
 
 ## The model (`Eureka/Gate.lean`)
 
