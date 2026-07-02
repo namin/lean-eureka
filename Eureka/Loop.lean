@@ -1,0 +1,102 @@
+import Eureka.Prover
+import Eureka.Heuristics
+
+/-!
+# The discovery loop
+
+Generations of: heuristics propose (reading the corpus), the counterexample
+search refutes, the prover ladder supports, and the gate — alone — admits.
+Fixpoint when a generation proposes nothing new.
+-/
+
+open Lean Meta
+
+namespace Eureka
+namespace Runtime
+
+/-- A fresh, `disco.`-prefixed declaration name. -/
+def freshName (base : Name) : MetaM Name := do
+  let env ← getEnv
+  let base := `disco ++ base
+  if !env.contains base then return base
+  let mut i := 1
+  while env.contains (base.appendIndexAfter i) do
+    i := i + 1
+  return base.appendIndexAfter i
+
+structure DiscoStats where
+  admitted : Nat := 0
+  refuted : Nat := 0
+  «open» : Nat := 0
+  refused : Nat := 0
+  merged : Nat := 0
+
+/-- Run the loop. Every fact in the returned corpus went through
+`commitFact`: screened, kernel-checked, axiom-audited. -/
+def discover (heuristics : List ConjHeuristic) (generations : Nat := 3) :
+    MetaM Corpus := do
+  let known ← collectKnown [`Nat]
+  IO.println s!"grounding pool: {known.size} Nat.* library lemmas"
+  let mut corpus : Corpus := {}
+  let mut attempted : Array (Expr × Name) := #[]
+  let mut stats : DiscoStats := {}
+  for gen in [1 : generations + 1] do
+    IO.println ""
+    IO.println s!"── generation {gen} ──"
+    let mut fresh : Array Conjecture := #[]
+    for h in heuristics do
+      let cs ← try h.propose corpus catch _ => pure #[]
+      for c in cs do
+        -- Verbatim re-proposal (heuristics re-fire every generation): skip.
+        if attempted.any (fun p => p.1 == c.stmt) then
+          continue
+        -- New statement, but definitionally an already-attempted one: a
+        -- genuine alias — the synonym tower, caught and logged at proposal
+        -- time.
+        let mut alias? : Option Name := none
+        for (a, nm) in attempted do
+          if ← withNewMCtxDepth (isDefEq a c.stmt) then
+            alias? := some nm
+            break
+        match alias? with
+        | some nm =>
+          stats := { stats with merged := stats.merged + 1 }
+          attempted := attempted.push (c.stmt, nm)
+          IO.println s!"  ≡ [{c.origin}] {toString (← ppExpr c.stmt)} — \
+definitionally identical to {nm}, merged"
+        | none =>
+          attempted := attempted.push (c.stmt, c.name)
+          fresh := fresh.push c
+    if fresh.isEmpty then
+      IO.println "no new conjectures — fixpoint."
+      break
+    for c in fresh do
+      let pretty := toString (← ppExpr c.stmt)
+      match ← hunt known (corpus.facts.map (·.name)) c.stmt with
+      | .refuted cex =>
+        stats := { stats with refuted := stats.refuted + 1 }
+        IO.println s!"  ✗ [{c.origin}] {pretty} — refuted ({cex})"
+      | .stillOpen =>
+        stats := { stats with «open» := stats.open + 1 }
+        IO.println s!"  ? [{c.origin}] {pretty} — open"
+      | .proved pf rung knownAs =>
+        let nm ← freshName c.name
+        match ← commitFact { name := nm, stmt := c.stmt, proof := pf } with
+        | some f =>
+          corpus := { corpus with facts := corpus.facts.push f }
+          stats := { stats with admitted := stats.admitted + 1 }
+          let note := match knownAs with
+            | some k => s!"grounded: {k}"
+            | none => rung
+          IO.println s!"  ✓ [{c.origin}] {pretty} — admitted ({note})"
+        | none =>
+          stats := { stats with refused := stats.refused + 1 }
+          IO.println s!"  ! [{c.origin}] {pretty} — prover evidence REFUSED by the gate"
+  IO.println ""
+  IO.println s!"{stats.admitted} admitted (every one kernel-gated), \
+{stats.refuted} refuted, {stats.open} open, {stats.merged} merged as \
+definitional duplicates, {stats.refused} refused at the gate"
+  return corpus
+
+end Runtime
+end Eureka

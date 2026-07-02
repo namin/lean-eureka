@@ -57,6 +57,38 @@ environment (its minted axiom persists after rollback), but nothing reaches
 the corpus without a clean audit — a later attempt to launder a proof through
 the litter is refused at admission.
 
+## The discovery loop (`Eureka/Prover.lean`, `Eureka/Heuristics.lean`, `Eureka/Loop.lean`)
+
+`Disco.lean` runs generations of: heuristics propose conjectures *derived*
+from templates and from the corpus (nothing hardcoded), a counterexample
+search refutes by evaluation, a prover ladder hunts for evidence (`refl`,
+grounding against the `Nat.*` library — direct and symmetric — then simp
+with the corpus itself, then the default simp set), and the gate alone
+admits. On the `Nat` algebra demo (7 operations, 5 law templates plus a
+corpus-reading mixer):
+
+```
+28 admitted (every one kernel-gated), 37 refuted, 0 open,
+10 merged as definitional duplicates, 0 refused at the gate
+```
+
+Three behaviors worth noticing in the output:
+
+- **Grounding certificates.** Most admitted facts arrive as
+  `grounded: Nat.gcd_comm` — the discovery is recognized as an alias of a
+  library lemma, by a kernel-checkable proof, at admission time.
+- **The synonym tower, caught at proposal time.** `∀ n, n - 0 = n` is merged
+  into `∀ n, n + 0 = n` — they are *definitionally the same proposition* —
+  before any proof effort is spent. Ten such merges in the demo run, each
+  logged with its target, none silent.
+- **Second-generation discovery.** The mixer's conjectures are built from
+  gen-1 admitted facts, and the survivors are proved by simp *using the
+  corpus* — discoveries proposing and proving discoveries.
+
+The prover and heuristics are untrusted by construction; a hunt that
+returned garbage evidence would be refused at the gate (`refused` counts it,
+and the count is zero only because the rungs are honest).
+
 ## Keynote axes
 
 | Axis | Instance |
@@ -81,9 +113,10 @@ the litter is refused at admission.
 ## Building
 
 ```
-lake build            # library + model theorems
+lake build                 # library + model theorems
 lake env lean Audit.lean   # axiom audit (all headline theorems axiom-free)
-lake env lean Smoke.lean   # runtime gate smoke test
+lake env lean Smoke.lean   # runtime gate smoke test (incl. adversarial round)
+lake env lean Disco.lean   # the discovery run
 ```
 
 Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
@@ -106,10 +139,14 @@ Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
 
 - [x] Gate model with soundness, provenance, collapse, and policy theorems
 - [x] Runtime gate: screen + kernel + axiom audit; heuristic firing
-- [ ] Corpus-aware heuristics: propose from admitted facts and the ambient
-      environment (Mathlib namespace as seed — no hand-written seed files)
-- [ ] Grounding probes: in-process defeq/`iff` alias certificates at
-      admission time (the synonym-tower fix)
+- [x] Discovery loop: generative + corpus-reading heuristics, counterexample
+      search, prover ladder, generational driver to fixpoint
+- [x] Grounding, first slice: definitional-alias merging at proposal time and
+      library grounding certificates (direct and symmetric) at proof time
+- [ ] Grounding probes beyond defeq: `iff` alias certificates via a tactic
+      ladder (the full synonym-tower fix)
+- [ ] Mathlib domains: seed the operation/template pools from a Mathlib
+      namespace instead of hand-picked `Nat` ops (needs the Mathlib dep)
 - [ ] LLM-proposed facts, then LLM-proposed *heuristic code*, admitted
       through the gate (lean-sage booth pattern)
 - [ ] Worth/agenda layer; reflective worth modification behind the gate
