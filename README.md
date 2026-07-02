@@ -9,7 +9,7 @@ it: a **fixed-gate reflective discovery system**. Heuristics are arbitrary
 untrusted code, including code that births new heuristics; the trusted
 components are the gates, and in the running system the fact gate is Lean
 kernel checking plus an axiom audit. The system may only say "eureka" when
-the kernel agrees.
+the kernel agrees and the axiom audit stays clean.
 
 The claim, precisely: the *fact gate* protects corpus soundness; the *rule
 gate* governs which heuristic-generating code may enter the population —
@@ -222,9 +222,9 @@ it on the synonym tower's own examples from the formal-disco matroid run:
   `Iff.trans` (`tryKnownChain` in the core prover, one step deep and
   domain-agnostic). The certificate names the bridging lemma.
 
-The `Eureka` core library remains Mathlib-free — `lake build` is 12 jobs;
-the domain layer is a separate `EurekaMathlib` target, and `MatroidStub` is
-not in CI.
+The `Eureka` core library remains Mathlib-free (it imports only Lean
+itself); the domain layer is a separate `EurekaMathlib` target, and
+`MatroidStub` is not in CI.
 
 ## Matroid discovery proper (`EurekaMathlib/MatroidDisco.lean`)
 
@@ -335,9 +335,9 @@ lake build EurekaMathlib && lake env lean MatroidStub.lean  # matroid microcosm 
 ```
 
 Toolchain: `leanprover/lean4:v4.30.0`. The Lake package declares a Mathlib
-dependency, but the `Eureka` core imports only Lean itself — the default
-`lake build` (12 jobs) needs no Mathlib build. The `EurekaMathlib` demos
-(`MatroidStub`, `MatroidDiscoRun`, `MatroidFrontierRun`) import Mathlib.
+dependency; the default target imports only Lean itself, and the
+Mathlib-importing demos are separated into the `EurekaMathlib` layer
+(`MatroidStub`, `MatroidDiscoRun`, `MatroidFrontierRun`).
 
 ## Neighbors
 

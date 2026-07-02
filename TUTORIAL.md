@@ -11,8 +11,8 @@ This tutorial walks lean-eureka as one instance of that pattern, one axis
 at a time, each stop a command you can run. The lineage being answered:
 Lenat's EURISKO had heuristics that create heuristics — rich, and
 ungovernable, because nothing checked what a heuristic put into the theory.
-Here the same expressiveness runs behind a gate, and the gate's adequacy is
-itself a theorem.
+Here the same expressiveness runs behind a gate; the small model proves the
+invariant that the runtime is designed to instantiate.
 
 One boundary up front: this is a **fixed-gate** reflective discovery
 system. Heuristic behavior and heuristic birth are arbitrary; the gates
