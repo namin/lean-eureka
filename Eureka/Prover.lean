@@ -167,6 +167,96 @@ def tryKnownSymm (known : Array KnownLemma) (stmt : Expr) :
       return none
   return r.join
 
+/-- Bounded backward chaining: prove `goal` from hypotheses `hyps` and the
+grounding pool, `depth` lemma applications deep. Mvar assignments made by
+unification propagate to the caller (premise types constrain each other);
+failed candidates are rolled back via saved state. Lemmas concluding `¬ Q`
+participate naturally: `forallTelescope` exposes `¬ Q` as a premise plus a
+`False` conclusion, so contradiction search is just backward chaining on a
+`False` goal. -/
+partial def proveFrom (known : Array KnownLemma) (hyps : Array Expr)
+    (used : IO.Ref (Array Name)) : Nat → Expr → MetaM (Option Expr) :=
+  fun depth goal => do
+    -- `¬ Q` is `Q → False`, but nothing unfolds `Not` for us: introduce the
+    -- hypothesis explicitly (free — no depth spent) and chase `False`.
+    if let some atom := goal.app1? ``Not then
+      return ← withLocalDeclD `h atom fun h => do
+        let some pf ← proveFrom known (hyps.push h) used depth (mkConst ``False)
+          | return none
+        return some (← mkLambdaFVars #[h] pf)
+    for h in hyps do
+      let s ← saveState
+      if ← isDefEq (← inferType h) goal then
+        return some h
+      s.restore
+    if depth == 0 then
+      return none
+    let goalHead := goal.getAppFn.constName?
+    let goalIsFalse := goal.isConstOf ``False
+    for k in known do
+      -- A lemma concluding `¬ P` is a `False`-conclusion lemma with one
+      -- extra premise `P`, so it is a candidate for `False` goals.
+      let candOk := k.rel == RelKind.other &&
+        ((goalHead.isSome && k.head == goalHead) ||
+         (goalIsFalse && k.head == some ``Not))
+      if candOk then
+        let s ← saveState
+        let usedSnap ← used.get
+        let res ← attempt do
+          let (mvs0, _, concl0) ← forallMetaTelescope k.type
+          let (mvs, concl) ← do
+            if let some atom := concl0.app1? ``Not then
+              let extra ← mkFreshExprMVar atom
+              pure (mvs0.push extra, mkConst ``False)
+            else
+              pure (mvs0, concl0)
+          unless ← isDefEq concl goal do return none
+          -- Discharge Prop premises left to right; unification along the
+          -- way pins the non-Prop metavariables (which may sit *before*
+          -- the premise that pins them — e.g. a `False`-conclusion lemma
+          -- constrains nothing until its first Prop premise unifies — so
+          -- skip them here and let the final mvar check catch strays).
+          for mv in mvs do
+            let mv' ← instantiateMVars mv
+            if mv'.isMVar then
+              let mvTy ← instantiateMVars (← inferType mv')
+              if ← isProp mvTy then
+                let some hpf ← proveFrom known hyps used (depth - 1) mvTy
+                  | return none
+                unless ← isDefEq mv' hpf do return none
+          let app ← instantiateMVars (mkAppN (mkConst k.name k.levels) mvs)
+          if app.hasExprMVar then return none
+          used.modify (·.push k.name)
+          return some app
+        match res.join with
+        | some pf => return some pf
+        | none =>
+          s.restore
+          used.set usedSnap
+    return none
+
+/-- Rung: compose known lemmas. Only fires on implication-shaped goals
+(there is at least one `Prop` hypothesis after the telescope); the
+certificate names every lemma used. This is what proves the facts that sit
+one composition beyond the library — true, kernel-certified, and not stated
+in Mathlib. -/
+def tryCompose (known : Array KnownLemma) (stmt : Expr) :
+    MetaM (Option (Expr × String)) := do
+  let usedRef ← IO.mkRef (#[] : Array Name)
+  let r ← attempt <| forallTelescope stmt fun xs body => do
+    let mut hyps : Array Expr := #[]
+    for x in xs do
+      if ← isProp (← inferType x) then
+        hyps := hyps.push x
+    if hyps.isEmpty then return none
+    let some pf ← proveFrom known hyps usedRef 2 body | return none
+    return some (← mkLambdaFVars xs pf)
+  match r.join with
+  | none => return none
+  | some pf =>
+    let used ← usedRef.get
+    return some (pf, String.intercalate " + " (used.toList.reverse.map toString))
+
 /-- One chaining candidate: try to close `∀ xs, lhs ↔ rhs` through known
 lemma `k : ∀ ys, A ↔ B`, matching `B ≐ rhs` (or `A ≐ rhs` when `flip`),
 proving the remaining `∀ xs, lhs ↔ mid` with `subProve`, and composing with
@@ -274,6 +364,8 @@ def hunt (known : Array KnownLemma) (corpusLemmas : Array Name) (stmt : Expr) :
     return .proved pf "simp"
   if let some pf ← tryTacticRung "omega" stmt then
     return .proved pf "omega"
+  if let some (pf, via) ← tryCompose known stmt then
+    return .proved pf s!"composed: {via}"
   -- Mathlib rungs: the tactics parse only when the ambient environment
   -- imports Mathlib, so these self-disable in dependency-free runs.
   if let some pf ← tryTacticRung "tauto" stmt then

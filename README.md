@@ -238,6 +238,42 @@ observations, demonstrating the verified-reflection machinery on the
 baseline's domain. Inventing new *concepts* (definitions with their own
 grounding lifecycle) is the remaining frontier.
 
+The full run data — all three matroid runs, numbers first, with the
+baseline comparison — is in [REPORT_MATROID.md](REPORT_MATROID.md).
+
+## The frontier harvest (`MatroidFrontierRun.lean`)
+
+The composition rung (`tryCompose`/`proveFrom` in the core prover): bounded
+backward chaining through the grounding pool — `¬ Q` goals introduce their
+hypothesis and chase `False`; lemmas concluding `¬ P` act as
+`False`-conclusion lemmas with an extra premise; unification pins the
+non-Prop metavariables and rolls back failed candidates. Certificates name
+every lemma used.
+
+A complete sweep of the exclusion family (`P X → ¬ Q X`, 44 conjectures)
+over the extracted predicates yields **4 grounded + 8 composed** facts —
+the composed ones true, kernel-certified, provable only by composing
+library lemmas, and *not stated in Mathlib* (grounding is tried first and
+fails). The system completed the missing cells of the predicate-exclusion
+matrix, e.g.:
+
+- `M.IsBase X → ¬M.IsCircuit X` — composed:
+  `Dep.not_indep + IsBase.indep + IsCircuit.dep` (three lemmas, a route
+  different from the obvious two-lemma proof — search, not templating);
+- `M.Coindep X → ¬M.IsCocircuit X` — composed from *circuit* lemmas:
+  unification silently instantiated the matroid at `M✶` and ran the
+  argument in the dual;
+- `M.IsColoop e → ¬M.IsLoop e` — routed through `IsNonloop`, a predicate
+  outside the extracted conjecture pool: the evidence pool is wider than
+  the hypothesis pool.
+
+The budgeted-agenda version of the same run (`evolve`) reproduced, for the
+third time, the economics finding: the exclusions agent was killed at
+worth 0.04 with its provable conjectures still queued behind a false-heavy
+enumeration prefix. In refuter-free domains, kill rules trade completeness
+for attention — the sweep exists because, for a completeness question,
+economics are the wrong tool.
+
 ## Keynote axes
 
 | Axis | Instance |
@@ -315,6 +351,9 @@ dependencies; the `EurekaMathlib` domain layer requires Mathlib.
       template agents + LLM booth over the extracted predicates; 19
       certified facts incl. Whitney-duality statements
       (`MatroidDiscoRun.lean`)
+- [x] Composition rung: bounded backward chaining with named-lemma
+      certificates — 8 kernel-certified matroid facts not stated in Mathlib
+      (`MatroidFrontierRun.lean`)
 - [ ] Concept invention: proposed *definitions* as a proposal kind, with
       their own grounding lifecycle (the remaining frontier vs. the
       formal-disco baseline)
