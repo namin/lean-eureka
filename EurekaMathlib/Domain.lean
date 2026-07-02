@@ -142,6 +142,24 @@ def aliasProbe (known : Array KnownLemma) (carrier : Name) (shape : PredShape)
             if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
               corpus := { corpus with facts := corpus.facts.push f }
               return (corpus, some (P.name, s!"by {tac}"))
+        -- Transitive: compose a direct step with a known iff bridging to
+        -- the canonical side (e.g. is_loop_def ↔ Dep {e} ↔ IsLoop, via
+        -- Matroid.singleton_dep).
+        let subProve := fun (subStmt : Expr) => do
+          let midHead := (← attempt <| forallTelescope subStmt fun _ body =>
+            pure ((body.app2? ``Iff).bind (·.2.getAppFn.constName?))).join
+          let unfolds := match midHead with
+            | some h => s!"{invented} {h}"
+            | none => s!"{invented}"
+          for tac in [s!"unfold {unfolds}; tauto", s!"unfold {unfolds}; aesop"] do
+            if let some pf ← tryTacticRung tac subStmt then
+              return some pf
+          return (none : Option Expr)
+        if let some (pf, bridge) ← tryKnownChain known c.stmt subProve then
+          let nm ← freshName c.name
+          if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+            corpus := { corpus with facts := corpus.facts.push f }
+            return (corpus, some (P.name, s!"chained via {bridge}"))
       | _ => pure ()
   return (corpus, none)
 

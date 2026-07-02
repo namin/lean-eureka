@@ -193,10 +193,12 @@ it on the synonym tower's own examples from the formal-disco matroid run:
   unfold-then-`tauto` rung. This is the probe that cost ~75s per candidate
   as a subprocess in the Python system (BRAINSTORM_ALIGN facet 1.B), now a
   `MetaM` call against the already-loaded environment.
-- **The honest miss**: `is_loop_def` (the run's literal invented loop
-  predicate) is *not* certified — its bridge to `Matroid.IsLoop` runs
-  through `Matroid.singleton_dep : M.Dep {e} ↔ M.IsLoop e`, a transitive
-  chain the one-step ladder cannot compose yet.
+- **Transitive grounding**: `is_loop_def` (the run's literal invented loop
+  predicate) is certified `↔ Matroid.IsLoop` by *composing* certificates —
+  a direct step `is_loop_def ↔ M.Dep {e}` (unfold + aesop) chained through
+  the library bridge `Matroid.singleton_dep : M.Dep {e} ↔ M.IsLoop e` with
+  `Iff.trans` (`tryKnownChain` in the core prover, one step deep and
+  domain-agnostic). The certificate names the bridging lemma.
 
 The `Eureka` core library remains Mathlib-free — `lake build` is 12 jobs;
 the domain layer is a separate `EurekaMathlib` target, and `MatroidStub` is
@@ -270,8 +272,11 @@ dependencies; the `EurekaMathlib` domain layer requires Mathlib.
 - [x] Mathlib domains, first slice: predicates extracted from a namespace by
       signature shape, implication sweep with certified edges, alias probes
       on the actual synonym-tower examples (`MatroidStub.lean`)
-- [ ] Transitive alias chaining (`is_loop_def ↔ Dep {e} ↔ IsLoop` via
-      `Matroid.singleton_dep`) — the standing alias miss
+- [x] Transitive alias chaining: `tryKnownChain` composes a provable step
+      with a known library `iff` via `Iff.trans` — closes
+      `is_loop_def ↔ Dep {e} ↔ IsLoop` through `Matroid.singleton_dep`
+- [ ] Deeper chains (search the iff graph, not one step); alias chaining for
+      `=`-shaped grounding via `Eq.trans`
 - [ ] Matroid discovery proper: templates/LLM booth over the extracted
       predicates; comparison against the formal-disco matroid baselines
 - [x] LLM-proposed facts through the gate (booth stage one; Bedrock client
