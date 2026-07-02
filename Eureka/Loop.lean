@@ -31,6 +31,30 @@ structure DiscoStats where
   refused : Nat := 0
   merged : Nat := 0
 
+/-- The fate of one deduplicated conjecture. -/
+inductive Outcome where
+  | admitted (f : Fact) (note : String)
+  | refuted (cex : String)
+  | stillOpen
+  | refusedAtGate
+
+/-- Judge one conjecture: hunt for evidence and, on support, admit through
+the gate. The corpus grows only on `admitted`. -/
+def judge (known : Array KnownLemma) (corpus : Corpus) (c : Conjecture) :
+    MetaM (Corpus × Outcome) := do
+  match ← hunt known (corpus.facts.map (·.name)) c.stmt with
+  | .refuted cex => return (corpus, .refuted cex)
+  | .stillOpen => return (corpus, .stillOpen)
+  | .proved pf rung knownAs =>
+    let nm ← freshName c.name
+    match ← commitFact { name := nm, stmt := c.stmt, proof := pf } with
+    | some f =>
+      let note := match knownAs with
+        | some k => s!"grounded: {k}"
+        | none => rung
+      return ({ corpus with facts := corpus.facts.push f }, .admitted f note)
+    | none => return (corpus, .refusedAtGate)
+
 /-- Run the loop. Every fact in the returned corpus went through
 `commitFact`: screened, kernel-checked, axiom-audited. -/
 def discover (heuristics : List ConjHeuristic) (generations : Nat := 3) :
@@ -55,7 +79,7 @@ def discover (heuristics : List ConjHeuristic) (generations : Nat := 3) :
         -- time.
         let mut alias? : Option Name := none
         for (a, nm) in attempted do
-          if ← withNewMCtxDepth (isDefEq a c.stmt) then
+          if ← defeqSafe a c.stmt then
             alias? := some nm
             break
         match alias? with
@@ -72,26 +96,21 @@ definitionally identical to {nm}, merged"
       break
     for c in fresh do
       let pretty := toString (← ppExpr c.stmt)
-      match ← hunt known (corpus.facts.map (·.name)) c.stmt with
+      let (corpus', outcome) ← judge known corpus c
+      corpus := corpus'
+      match outcome with
       | .refuted cex =>
         stats := { stats with refuted := stats.refuted + 1 }
         IO.println s!"  ✗ [{c.origin}] {pretty} — refuted ({cex})"
       | .stillOpen =>
         stats := { stats with «open» := stats.open + 1 }
         IO.println s!"  ? [{c.origin}] {pretty} — open"
-      | .proved pf rung knownAs =>
-        let nm ← freshName c.name
-        match ← commitFact { name := nm, stmt := c.stmt, proof := pf } with
-        | some f =>
-          corpus := { corpus with facts := corpus.facts.push f }
-          stats := { stats with admitted := stats.admitted + 1 }
-          let note := match knownAs with
-            | some k => s!"grounded: {k}"
-            | none => rung
-          IO.println s!"  ✓ [{c.origin}] {pretty} — admitted ({note})"
-        | none =>
-          stats := { stats with refused := stats.refused + 1 }
-          IO.println s!"  ! [{c.origin}] {pretty} — prover evidence REFUSED by the gate"
+      | .admitted _ note =>
+        stats := { stats with admitted := stats.admitted + 1 }
+        IO.println s!"  ✓ [{c.origin}] {pretty} — admitted ({note})"
+      | .refusedAtGate =>
+        stats := { stats with refused := stats.refused + 1 }
+        IO.println s!"  ! [{c.origin}] {pretty} — prover evidence REFUSED by the gate"
   IO.println ""
   IO.println s!"{stats.admitted} admitted (every one kernel-gated), \
 {stats.refuted} refuted, {stats.open} open, {stats.merged} merged as \

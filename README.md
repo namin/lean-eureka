@@ -89,6 +89,29 @@ The prover and heuristics are untrusted by construction; a hunt that
 returned garbage evidence would be refused at the gate (`refused` counts it,
 and the count is zero only because the rungs are honest).
 
+## The booth (`Eureka/Booth.lean`, `Eureka/LLM.lean`)
+
+Stage one of the LLM proposer: the model (Claude on Bedrock, client ported
+from lean-sage) sees the corpus and its previous round's outcomes and
+proposes conjectures as bare Lean terms. Each line must survive parsing,
+elaboration at `Prop`, verbatim and definitional dedup, counterexample
+search, the evidence hunt, and the gate — the LLM is a proposer exactly like
+the template heuristics, smarter and no more trusted. The transport is a
+parameter, so `BoothStub.lean` exercises every path deterministically
+(CI-able, no credentials) while `BoothRun.lean` runs live.
+
+A live 3-round run on top of the template corpus admitted 16 LLM-proposed
+facts (every one kernel-gated), including connective laws the templates
+cannot express — `∀ a b, a - b + b = max a b` (grounded: `Nat.sub_add_eq_max`),
+`∀ a b, a.gcd (a + b) = a.gcd b` (grounded: `Nat.gcd_self_add_right`),
+`∀ a b c, a ^ (b + c) = a ^ b * a ^ c` (grounded: `Nat.pow_add`) — plus two
+facts admitted by simp with no library alias. Five true-but-unproved
+conjectures were honestly reported open (`min a b + max a b = a + b`,
+`a² - b² = (a-b)(a+b)`, …): the proposer already outruns the tactic ladder,
+which is the depth ceiling made visible. Two proposals were merged as
+definitional duplicates of corpus facts. Zero falsehoods survived to the
+corpus; zero garbage evidence reached it (`refused = 0`).
+
 ## Keynote axes
 
 | Axis | Instance |
@@ -113,10 +136,12 @@ and the count is zero only because the rungs are honest).
 ## Building
 
 ```
-lake build                 # library + model theorems
-lake env lean Audit.lean   # axiom audit (all headline theorems axiom-free)
-lake env lean Smoke.lean   # runtime gate smoke test (incl. adversarial round)
-lake env lean Disco.lean   # the discovery run
+lake build                    # library + model theorems
+lake env lean Audit.lean      # axiom audit (all headline theorems axiom-free)
+lake env lean Smoke.lean      # runtime gate smoke test (incl. adversarial round)
+lake env lean Disco.lean      # the discovery run
+lake env lean BoothStub.lean  # booth pipeline test, deterministic, no credentials
+lake env lean BoothRun.lean   # live: discover, then 3 LLM rounds (needs aws CLI + Bedrock)
 ```
 
 Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
@@ -147,7 +172,11 @@ Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
       ladder (the full synonym-tower fix)
 - [ ] Mathlib domains: seed the operation/template pools from a Mathlib
       namespace instead of hand-picked `Nat` ops (needs the Mathlib dep)
-- [ ] LLM-proposed facts, then LLM-proposed *heuristic code*, admitted
-      through the gate (lean-sage booth pattern)
+- [x] LLM-proposed facts through the gate (booth stage one; Bedrock client
+      ported from lean-sage)
+- [ ] LLM-proposed *heuristic code*, elaborated, audited, and installed into
+      the running loop (booth stage two — the real reflection move)
+- [ ] Prover rungs beyond the ladder (`omega`, induction templates) — five
+      true LLM conjectures are already open; the proposer outruns the prover
 - [ ] Worth/agenda layer; reflective worth modification behind the gate
 - [ ] Matroid microcosm; comparison against the formal-disco baselines

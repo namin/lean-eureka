@@ -27,12 +27,25 @@ inductive Verdict where
   | stillOpen
   deriving Inhabited
 
+/-- Run one evidence attempt, absorbing *all* failures — including runtime
+ones like max-recursion-depth, which plain `try/catch` lets through. This
+matters: simp over a corpus of discovered rewrite rules can genuinely
+diverge, and a rung that blows up is just a rung that failed. -/
+def attempt {α : Type} (x : MetaM α) : MetaM (Option α) :=
+  tryCatchRuntimeEx
+    (try some <$> x catch _ => return none)
+    (fun _ => return none)
+
+/-- `isDefEq` that treats any failure — including runtime blowup — as
+"not definitionally equal". -/
+def defeqSafe (a b : Expr) : MetaM Bool :=
+  return (← attempt (withNewMCtxDepth (isDefEq a b))).getD false
+
 /-- Counterexample search: instantiate up to three `Nat` binders with small
 numerals and *evaluate*. Only speaks when an instantiation computes to
 `false`; anything short of that is silence, not support. -/
 def tryRefute (stmt : Expr) (range : Nat := 4) : MetaM (Option String) := do
-  try
-    forallTelescope stmt fun xs body => do
+  let r ← attempt <| forallTelescope stmt fun xs body => do
       if xs.size > 3 then return none
       for x in xs do
         unless (← inferType x).isConstOf ``Nat do return none
@@ -53,16 +66,15 @@ def tryRefute (stmt : Expr) (range : Nat := 4) : MetaM (Option String) := do
           return some (String.intercalate ", " parts.toList)
         unless r.isConstOf ``Bool.true do return none
       return none
-  catch _ => return none
+  return r.join
 
 /-- Rung 1: the two sides are definitionally equal. -/
 def tryRefl (stmt : Expr) : MetaM (Option Expr) := do
-  try
-    forallTelescope stmt fun xs body => do
+  let r ← attempt <| forallTelescope stmt fun xs body => do
       let some (_, lhs, rhs) := body.eq? | return none
       unless ← withNewMCtxDepth (isDefEq lhs rhs) do return none
       return some (← mkLambdaFVars xs (← mkEqRefl lhs))
-  catch _ => return none
+  return r.join
 
 /-- A library lemma eligible as a grounding certificate, with a cheap
 prefilter key (binder count, head constant of the equation's left side). -/
@@ -106,7 +118,7 @@ def tryKnown (known : Array KnownLemma) (stmt : Expr) :
   let some (binders, lhsHead) := key | return none
   for k in known do
     if k.binders == binders && k.lhsHead == lhsHead then
-      if ← withNewMCtxDepth (isDefEq k.type stmt) then
+      if ← defeqSafe k.type stmt then
         return some (mkConst k.name, k.name)
   return none
 
@@ -114,21 +126,20 @@ def tryKnown (known : Array KnownLemma) (stmt : Expr) :
 way around*. The proof is the lemma with `Eq.symm` applied pointwise. -/
 def tryKnownSymm (known : Array KnownLemma) (stmt : Expr) :
     MetaM (Option (Expr × Name)) := do
-  try
-    forallTelescope stmt fun xs body => do
+  let r ← attempt <| forallTelescope stmt fun xs body => do
       let some (_, lhs, rhs) := body.eq? | return none
       let symmStmt ← mkForallFVars xs (← mkEq rhs lhs)
       let some (pf, nm) ← tryKnown known symmStmt | return none
       let proof ← mkLambdaFVars xs (← mkEqSymm (mkAppN pf xs))
       return some (proof, nm)
-  catch _ => return none
+  return r.join
 
 /-- Rungs 3 and 4: simp, with an explicit lemma set. Called first with the
 corpus itself — discoveries proving discoveries — and then with the ambient
 default simp set. -/
 def trySimpWith (lemmas : Array Name) (useDefault : Bool) (stmt : Expr) :
     MetaM (Option Expr) := do
-  try
+  let r ← attempt do
     let goal ← mkFreshExprMVar stmt
     let mut thms : SimpTheorems := {}
     if useDefault then
@@ -141,7 +152,7 @@ def trySimpWith (lemmas : Array Name) (useDefault : Bool) (stmt : Expr) :
     match result with
     | none => return some (← instantiateMVars goal)
     | some _ => return none
-  catch _ => return none
+  return r.join
 
 /-- The hunt: refute first (cheap, and it kills the treadmill of spending
 proof effort on falsehoods), then the proof ladder. -/
