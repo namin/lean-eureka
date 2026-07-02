@@ -94,8 +94,10 @@ every lemma used):
 
 **4 grounded + 8 composed + 32 open.**
 
-The 8 composed facts — kernel-certified, and *not stated in Mathlib*
-(grounding is attempted first and fails):
+The 8 composed facts — kernel-certified, and *not matched by the grounding
+pass* over the 1314-lemma `Matroid.*` pool (grounding is attempted first
+and finds no alias; this is a claim about the pool, not an exhaustive
+search of Mathlib):
 
 | fact | certificate |
 |---|---|
@@ -131,19 +133,20 @@ predicates. Rows are only comparable where the question is the same.
 |---|---|---|
 | user guidance | seed JSON + canonical pool JSON + worth surgery by hand | the name `Matroid` |
 | verification | `lake env lean` subprocess per attempt | kernel in-process (`addDecl` + axiom audit) |
-| corpus soundness | per-proof check | by construction (`discovery_sound`, machine-checked) |
+| corpus soundness | per-proof check | model-level theorem (`discovery_sound`, machine-checked); runtime instantiates the gate (no formal refinement proof) |
 | alias detection | post-hoc toolchain, ~75s/probe, ~9% of invented vocab grounded | at admission, in-process; both probed synonym-tower predicates certified (one via transitive chain) |
 | synonym tower | 3 loop + 4 cocircuit variants entered the corpus | definitional duplicates merged at proposal time, logged with targets |
 | Whitney-duality family | targeted ×100 boost, failed after 500 attempts | `IsBase B → M✶.IsBase (M.E \ B)` certified — by grounding (recognized, not derived) |
-| new-to-library facts | theorems about invented concepts (LLM-proved) | 8 composed exclusion facts, not stated in Mathlib |
+| new-to-library facts | theorems about invented concepts (LLM-proved) | 8 composed exclusion facts, unmatched by the grounding pass |
 | falsehood filtering | `plausible` counterexample subprocess | none in this domain (32–83 opens include falsehoods) |
 | priority starvation | diagnosed post-hoc, fixed by hand-tuned boost | reproduced mechanistically 3× (kill rule vs enumeration order); resolved for completeness questions by sweeping instead |
 
 ## Interpretation (separate from the facts above)
 
 1. The system is a working *verified rediscovery, grounding, and shallow
-   composition* engine. Its genuinely new output on matroids is the
-   composed exclusion lattice — modest mathematics, honestly labeled, found
+   composition* engine. Its new-as-unmatched output on matroids is the
+   composed exclusion lattice — modest mathematics, honestly labeled
+   (unmatched by the grounding pass, not proven absent from Mathlib), found
    and certified autonomously.
 2. Grounding-first discovery changes what "depth ceiling" means: the
    baseline's unprovable duality target became a recognition problem. This

@@ -238,8 +238,8 @@ partial def proveFrom (known : Array KnownLemma) (hyps : Array Expr)
 /-- Rung: compose known lemmas. Only fires on implication-shaped goals
 (there is at least one `Prop` hypothesis after the telescope); the
 certificate names every lemma used. This is what proves the facts that sit
-one composition beyond the library — true, kernel-certified, and not stated
-in Mathlib. -/
+one composition beyond the grounding pool — true, kernel-certified, and
+unmatched by the grounding pass (which is tried first). -/
 def tryCompose (known : Array KnownLemma) (stmt : Expr) :
     MetaM (Option (Expr × String)) := do
   let usedRef ← IO.mkRef (#[] : Array Name)

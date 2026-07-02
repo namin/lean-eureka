@@ -5,10 +5,18 @@ _A verified discovery gate: EURISKO's reflection behind LCF's kernel._
 EURISKO's defining move — heuristics that create heuristics — made it rich
 and ungovernable: nothing checked what a heuristic put into the theory.
 lean-eureka restores that full expressiveness and places a gate in front of
-it. Heuristics are arbitrary untrusted code, including code that births new
-heuristics; the only trusted component is the gate, and in the running system
-the gate is the Lean kernel. The system may only say "eureka" when the kernel
-agrees.
+it: a **fixed-gate reflective discovery system**. Heuristics are arbitrary
+untrusted code, including code that births new heuristics; the trusted
+components are the gates, and in the running system the fact gate is Lean
+kernel checking plus an axiom audit. The system may only say "eureka" when
+the kernel agrees.
+
+The claim, precisely: the *fact gate* protects corpus soundness; the *rule
+gate* governs which heuristic-generating code may enter the population —
+governance and policy, not a source of mathematical truth. The gates
+themselves are fixed here — this artifact does not reflectively modify its
+own gate; that axis is [lean-keep](https://github.com/namin/lean-keep)'s,
+and its limit [lean-loeb](https://github.com/namin/lean-loeb)'s.
 
 This is the "verified discovery system" instance of the
 [reasonable-reflection](https://github.com/namin/reasonable-reflection)
@@ -32,20 +40,28 @@ fact with evidence, or a new heuristic. All theorems are axiom-free
 | `ruleGated_heuristics_invariant` | Gating heuristic *birth* buys policy invariants over the heuristic population — not soundness, which the object gate already secured. |
 
 The pair (`discovery_sound`, `ruleGated_heuristics_invariant`) is the
-division of labor: kernel-checking facts is what soundness needs; checking
+division of labor: checking facts is what soundness needs; checking
 heuristics is about *governance* of the population (resource discipline,
-non-duplication), a strictly separate concern.
+non-duplication), a strictly separate concern. Note the model proves the
+invariant for an abstract sound gate; the runtime below instantiates that
+gate with kernel checking plus an axiom audit — a correspondence by
+construction and inspection, not a formal refinement proof from the `MetaM`
+implementation to the model.
 
 ## The runtime (`Eureka/Runtime.lean`)
 
-The model realized in Lean metaprogramming: statements are `Prop`-typed
-`Expr`s, evidence is a proof term, the gate is `commitFact` — a mechanical
-screen (no `sorry`, no metavariables, no loose fvars, statement is a `Prop`,
-proof type-checks against it) in front of the kernel (`addDecl`), followed by
-an axiom audit (`propext`, `Classical.choice`, `Quot.sound` only). Refusal
-leaves the environment unchanged. A `Heuristic` is arbitrary metaprogram
-code; the LCF discipline — `Fact` in the role of `thm` — means nothing it
-returns reaches the corpus except through the gate.
+The model's intended gate, instantiated in Lean metaprogramming: statements
+are `Prop`-typed `Expr`s, evidence is a proof term, the gate is `commitFact`
+— a mechanical screen (no `sorry`, no metavariables, no loose fvars,
+statement is a `Prop`, proof type-checks against it) in front of the kernel
+(`addDecl`), followed by an axiom audit (`propext`, `Classical.choice`,
+`Quot.sound` only). Refusal rolls back `commitFact`'s own additions. A
+`Heuristic` is arbitrary metaprogram code; in the provided discovery APIs
+(`fire`, `judge`, the booth), nothing a heuristic returns reaches the corpus
+except through `commitFact`. This is LCF-style in spirit — `Fact` in the
+role of `thm` — with the caveat that the `Fact` constructor itself is not
+hidden: the discipline is enforced by the discovery loops, not by type
+abstraction.
 
 `Smoke.lean` exercises it, including adversarially: a heuristic proposes an
 honest fact, a false fact with a type-incorrect proof, and a `sorry`-backed
@@ -53,10 +69,11 @@ fact — the gate admits exactly the first. A second heuristic uses its full
 `MetaM` power to mint an axiom asserting a falsehood and proposes a "fact"
 proved from it; the proof genuinely type-checks, so the screen and the kernel
 both pass it, and it is the axiom audit that refuses it. The boundary of the
-guarantee is exactly the model's: a heuristic can litter the ambient
-environment (its minted axiom persists after rollback), but nothing reaches
-the corpus without a clean audit — a later attempt to launder a proof through
-the litter is refused at admission.
+guarantee: a malicious heuristic may add declarations to the ambient Lean
+environment before admission (its minted axiom persists after rollback) —
+the environment is *not* globally protected. The corpus is, because every
+admission is audited: a later attempt to launder a proof through the litter
+is refused at the gate.
 
 ## The discovery loop (`Eureka/Prover.lean`, `Eureka/Heuristics.lean`, `Eureka/Loop.lean`)
 
@@ -106,7 +123,7 @@ facts (every one kernel-gated), including connective laws the templates
 cannot express — `∀ a b, a - b + b = max a b` (grounded: `Nat.sub_add_eq_max`),
 `∀ a b, a.gcd (a + b) = a.gcd b` (grounded: `Nat.gcd_self_add_right`),
 `∀ a b c, a ^ (b + c) = a ^ b * a ^ c` (grounded: `Nat.pow_add`) — plus two
-facts admitted by simp with no library alias. Five true-but-unproved
+facts admitted by simp with no alias found by the grounding pass. Five true-but-unproved
 conjectures were honestly reported open (`min a b + max a b = a + b`,
 `a² - b² = (a-b)(a+b)`, …): the proposer already outruns the tactic ladder,
 which is the depth ceiling made visible. (The `omega` rung, added since,
@@ -123,6 +140,10 @@ type `Corpus → MetaM (Array Conjecture)` — which is elaborated, checked
 against the rule policy (interface type, no `sorry`, effect denylist: no
 `IO.Process`/`IO.FS`), compiled through the interpreter, installed, and
 fired. Rejections feed the error text back for a retry, lean-sage style.
+The rule gate is an interface/type check plus shallow policy restrictions —
+it is not an OS sandbox or a total security boundary, and nontermination
+and resource isolation remain out of scope; what it need not provide is
+mathematical truth, which only the fact gate admits.
 Everything a born heuristic proposes still passes the fact gate; per
 `discovery_sound` the rule gate was never needed for corpus soundness, and
 per `ruleGated_heuristics_invariant` what it buys is policy over the
@@ -253,10 +274,11 @@ every lemma used.
 
 A complete sweep of the exclusion family (`P X → ¬ Q X`, 44 conjectures)
 over the extracted predicates yields **4 grounded + 8 composed** facts —
-the composed ones true, kernel-certified, provable only by composing
-library lemmas, and *not stated in Mathlib* (grounding is tried first and
-fails). The system completed the missing cells of the predicate-exclusion
-matrix, e.g.:
+the composed ones true, kernel-certified, and *not matched by the grounding
+pass* over the 1314-lemma `Matroid.*` pool (grounding is tried first and
+finds no alias; this is not an exhaustive search of Mathlib). The system
+completed the missing cells of the predicate-exclusion matrix as it sees
+them, e.g.:
 
 - `M.IsBase X → ¬M.IsCircuit X` — composed:
   `Dep.not_indep + IsBase.indep + IsCircuit.dep` (three lemmas, a route
@@ -284,7 +306,7 @@ economics are the wrong tool.
 | Evidence kind | a kernel-checked proof term (facts); elaboration + audit (code) |
 | Policy | proof type-checks, axiom footprint bounded; code passes policy `P` |
 | Guarantee | every reachable corpus is sound and gate-provenanced |
-| Reflective depth | heuristics birth heuristics, unrestricted; gating the gate is `lean-keep`'s axis, its Löbian limit is `lean-loeb`'s |
+| Reflective depth | heuristics birth heuristics, unrestricted; the gates themselves are **fixed** — gating the gate is `lean-keep`'s axis, its Löbian limit `lean-loeb`'s |
 
 ## Which EURISKO slots are gateable
 
@@ -312,8 +334,10 @@ lake env lean EvolveRun.lean   # live: the LLM as one agent in the population
 lake build EurekaMathlib && lake env lean MatroidStub.lean  # matroid microcosm (Mathlib)
 ```
 
-Toolchain: `leanprover/lean4:v4.30.0`. The `Eureka` core has no
-dependencies; the `EurekaMathlib` domain layer requires Mathlib.
+Toolchain: `leanprover/lean4:v4.30.0`. The Lake package declares a Mathlib
+dependency, but the `Eureka` core imports only Lean itself — the default
+`lake build` (12 jobs) needs no Mathlib build. The `EurekaMathlib` demos
+(`MatroidStub`, `MatroidDiscoRun`, `MatroidFrontierRun`) import Mathlib.
 
 ## Neighbors
 
@@ -353,8 +377,8 @@ dependencies; the `EurekaMathlib` domain layer requires Mathlib.
       certified facts incl. Whitney-duality statements
       (`MatroidDiscoRun.lean`)
 - [x] Composition rung: bounded backward chaining with named-lemma
-      certificates — 8 kernel-certified matroid facts not stated in Mathlib
-      (`MatroidFrontierRun.lean`)
+      certificates — 8 kernel-certified matroid facts unmatched by the
+      grounding pass (`MatroidFrontierRun.lean`)
 - [ ] Concept invention: proposed *definitions* as a proposal kind, with
       their own grounding lifecycle (the remaining frontier vs. the
       formal-disco baseline)
@@ -373,5 +397,5 @@ dependencies; the `EurekaMathlib` domain layer requires Mathlib.
       closes the linear opens from the live runs
 - [ ] Further prover rungs (induction templates, nonlinear arithmetic) —
       `min a b * max a b = a * b` is the standing open
-- [ ] Worth/agenda layer; reflective worth modification behind the gate
-- [ ] Matroid microcosm; comparison against the formal-disco baselines
+- [ ] Reflective modification of worth/policy *through a gate one level up*
+      (today the gates and the worth function are fixed; see lean-keep)

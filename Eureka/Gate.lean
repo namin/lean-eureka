@@ -23,7 +23,12 @@ Main results:
   invariants over the heuristic population.
 
 In the running system (`Eureka.Runtime`), `World.Stmt` is a `Prop`-typed
-`Expr`, the gate is the Lean kernel, and heuristic code is a metaprogram.
+`Expr`, the intended gate is Lean kernel checking plus an axiom audit, and
+heuristic code is a metaprogram. The runtime instantiates this model by
+construction and inspection; there is no formal refinement proof from the
+`MetaM` implementation to this model. The gates themselves are fixed here —
+making the gate reflectively modifiable through a gate one level up is
+lean-keep's axis.
 -/
 
 namespace Eureka

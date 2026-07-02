@@ -3,13 +3,19 @@ import Lean
 /-!
 # The discovery gate, running
 
-The model in `Eureka.Gate` realized in Lean metaprogramming: statements are
-`Prop`-typed `Expr`s, evidence is a proof term, and the gate is the Lean
-kernel (`addDecl`) plus a mechanical audit ladder in front of it.
+The intended gate of the `Eureka.Gate` model, instantiated in Lean
+metaprogramming: statements are `Prop`-typed `Expr`s, evidence is a proof
+term, and the gate is the Lean kernel (`addDecl`) plus a mechanical audit
+ladder in front of it. The correspondence to the model is by construction
+and inspection — there is no formal refinement proof from this `MetaM`
+implementation to the model.
 
 A `Heuristic` is arbitrary metaprogram code. It can inspect the corpus and
-the environment; the type discipline gives it no way to extend the corpus
-except through `commitFact` — the LCF move, with `Fact` in the role of `thm`.
+the environment; in the provided discovery loops (`fire`, `judge`, the
+booth), nothing it returns reaches the corpus except through `commitFact` —
+LCF-style in spirit, with `Fact` in the role of `thm`, though the `Fact`
+constructor itself is not hidden: the discipline lives in the loops, not in
+type abstraction.
 -/
 
 open Lean Meta
@@ -18,7 +24,8 @@ namespace Eureka
 namespace Runtime
 
 /-- A fact the gate has admitted: a statement with the proof term the kernel
-accepted for it. Constructed only by `commitFact`. -/
+accepted for it. Constructed by `commitFact`; the provided discovery loops
+admit facts only through it (the constructor itself is not hidden). -/
 structure Fact where
   name : Name
   stmt : Expr
@@ -60,9 +67,12 @@ def screenFact (p : FactProposal) : MetaM (Option Fact) := do
   return some { name := p.name, stmt := p.stmt, proof := p.proof }
 
 /-- The gate: screen, submit to the kernel as a theorem, then audit the
-axioms the accepted proof depends on. On any refusal the environment is left
-unchanged and the proposal is dropped — refusal is safe, exactly as in the
-model (`Eureka.admit`'s `else` branch). -/
+axioms the accepted proof depends on. On any refusal `commitFact`'s own
+additions are rolled back and the proposal is dropped — refusal is safe,
+exactly as in the model (`Eureka.admit`'s `else` branch). Note the rollback
+covers only this function's additions: a heuristic may have added
+declarations of its own during `propose`, and those persist — the gate
+protects the corpus, not the ambient environment. -/
 def commitFact (p : FactProposal) : MetaM (Option Fact) := do
   let some f ← screenFact p | return none
   let env ← getEnv

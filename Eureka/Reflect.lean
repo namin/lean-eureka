@@ -14,10 +14,14 @@ what the rule policy buys is an invariant over the heuristic population.
 The rule policy here is mechanical: the term elaborates at the interface
 type with no `sorry`/metavariables/free variables, and references no
 constant on the effect denylist (`IO.Process`, `IO.FS`, the LLM client).
-The denylist is shallow (it inspects the term's own constants); OS-level
-sandboxing of metaprograms is out of scope, exactly as in lean-sage's booth
-— the theorems protect the corpus, not the filesystem. A non-terminating
-heuristic would hang the loop; a watchdog is future work.
+This is an interface/type check plus shallow policy restrictions — not an
+OS sandbox and not a total security boundary. The denylist inspects the
+term's own constants only; OS-level sandboxing of metaprograms is out of
+scope, exactly as in lean-sage's booth — the theorems protect the corpus,
+not the filesystem. Nontermination and resource isolation are likewise out
+of scope (a non-terminating heuristic would hang the loop; a watchdog is
+future work). None of this is where mathematical truth comes from: only
+the fact gate admits facts.
 -/
 
 open Lean Meta Elab

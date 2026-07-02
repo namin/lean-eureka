@@ -4,8 +4,9 @@ import EurekaMathlib
 The frontier harvest: a *complete* sweep of the exclusion family
 (`P X → ¬ Q X`) over the extracted `Matroid` predicates, with the
 composition rung active. Facts admitted with a `composed:` certificate are
-the yield — true, kernel-certified, provable only by composing library
-lemmas, and not stated in Mathlib (grounding is tried first and fails).
+the yield — true, kernel-certified, and unmatched by the grounding pass
+over the `Matroid.*` pool (grounding is tried first and finds no alias;
+not an exhaustive search of Mathlib).
 Deterministic; no LLM. A sweep rather than the budgeted agenda: for a
 completeness question, economics are the wrong tool.
 Run with `lake env lean MatroidFrontierRun.lean`.
@@ -46,4 +47,4 @@ open Lean Eureka.Runtime
           IO.println s!"  ! {toString (← Meta.ppExpr c.stmt)} — REFUSED"
   IO.println ""
   IO.println s!"exclusion sweep: {grounded} grounded, {composed} composed \
-(kernel-certified, not stated in Mathlib), {opens} open"
+(kernel-certified, unmatched by the grounding pass), {opens} open"

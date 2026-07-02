@@ -14,6 +14,13 @@ ungovernable, because nothing checked what a heuristic put into the theory.
 Here the same expressiveness runs behind a gate, and the gate's adequacy is
 itself a theorem.
 
+One boundary up front: this is a **fixed-gate** reflective discovery
+system. Heuristic behavior and heuristic birth are arbitrary; the gates
+that judge them are not themselves reflectively modified here. The claim to
+keep in view throughout: the *fact gate* protects corpus soundness; the
+*rule gate* governs which heuristic-generating code enters the population —
+governance, not a source of mathematical truth.
+
 For this artifact the axes read:
 
 | axis | instance |
@@ -25,10 +32,11 @@ For this artifact the axes read:
 | guarantee | every reachable corpus is sound and gate-provenanced (`discovery_sound`, `discovery_provenance`) |
 | reflective depth | heuristics birth heuristics, unrestricted; the gate-for-the-gate axis is lean-keep's, its Löbian limit lean-loeb's |
 
-Setup: `lake build` (the core has no dependencies; ~30s cold). Sections 8–9
-additionally need `lake build EurekaMathlib` (Mathlib; first build fetches
-the cache). Sections marked *live* need the `aws` CLI with Bedrock access —
-every live run has a deterministic, credential-free counterpart.
+Setup: `lake build` (the default target imports only Lean itself, ~30s
+cold; the package's Mathlib dependency is fetched but only needed for
+§§8–9, via `lake build EurekaMathlib`). Sections marked *live* need the
+`aws` CLI with Bedrock access — every live run has a deterministic,
+credential-free counterpart.
 
 ## 1. The guarantee, as theorems
 
@@ -40,9 +48,12 @@ Silence from `Audit.lean` is the point: every headline theorem depends on
 **no axioms at all**, enforced by `#guard_msgs` at elaboration time.
 
 Read `Eureka/Gate.lean` top to bottom (~250 lines). The model: a `World`
-(statements + ground truth), a `Gate` (an evidence checker, sound by
-assumption — in the running system this is Lean's kernel), and a `State`
-holding a corpus and a population of heuristics *as code*. A `Step` fires
+(statements + ground truth), a `Gate` (an *abstract* evidence checker,
+sound by assumption — the runtime instantiates the intended gate with Lean
+kernel checking plus an axiom audit; the correspondence is by construction
+and inspection, not a formal refinement proof from the `MetaM`
+implementation to this model), and a `State` holding a corpus and a
+population of heuristics *as code*. A `Step` fires
 an installed heuristic under an **adversarially chosen** interpreter and
 admits one of its proposals: a fact with evidence, or a new heuristic.
 
@@ -69,11 +80,14 @@ attempt, preserves the invariant."
 lake env lean Smoke.lean
 ```
 
-The runtime gate (`Eureka/Runtime.lean`) realizes the model in `MetaM`:
-statements are `Prop`-typed `Expr`s, evidence is a proof term, and
-`commitFact` is a mechanical screen (no `sorry`, no metavariables,
-statement is a `Prop`, proof type-checks) in front of the kernel
-(`addDecl`), followed by an axiom audit.
+The runtime gate (`Eureka/Runtime.lean`) instantiates the model's intended
+gate in `MetaM`: statements are `Prop`-typed `Expr`s, evidence is a proof
+term, and `commitFact` is a mechanical screen (no `sorry`, no
+metavariables, statement is a `Prop`, proof type-checks) in front of the
+kernel (`addDecl`), followed by an axiom audit. In the provided discovery
+APIs (`fire`, `judge`, the booth), facts enter the corpus only through
+`commitFact`; the `Fact` constructor itself is not hidden — the discipline
+lives in the loops, not in type abstraction.
 
 The smoke test's second act is the important one. An adversarial heuristic
 uses its full `MetaM` power to **mint an axiom** asserting `2 + 2 = 5` into
@@ -86,12 +100,14 @@ evil admitted: []
 evil rejected: [demo.evil]
 ```
 
-The boundary, stated honestly: the heuristic's minted axiom persists in the
-ambient environment (rollback removes only the refused theorem), but
-nothing reaches the corpus without a clean audit — a later attempt to
-launder a proof through the litter is refused too. The theorems protect the
-corpus, not the environment, and not the filesystem (OS-level sandboxing of
-metaprograms is out of scope, as in lean-sage's booth).
+The boundary, stated honestly: a malicious heuristic may add declarations
+to the ambient environment before admission — the minted axiom persists
+(rollback removes only the refused theorem), and the Lean environment is
+*not* globally protected. The corpus is, because every admission is
+audited: a later attempt to launder a proof through the litter is refused
+too. The theorems protect the corpus — not the environment, and not the
+filesystem (OS-level sandboxing of metaprograms is out of scope, as in
+lean-sage's booth).
 
 ## 3. Proposers, first form: templates
 
@@ -155,7 +171,11 @@ writes a *heuristic* — a Lean metaprogram of type
 `Corpus → MetaM (Array Conjecture)` — and the system elaborates it, checks
 the rule policy (interface type, no `sorry`, effect denylist: no
 `IO.Process`, no `IO.FS`), compiles it through the interpreter, installs
-it, and fires it.
+it, and fires it. The rule gate is exactly that — an interface/type check
+plus shallow policy restrictions. It is not an OS sandbox or a total
+security boundary, and it is not where mathematical truth comes from:
+governance is its whole job, and `discovery_sound` says soundness never
+depended on it.
 
 The stub is the model's `admitRuleGated` executed literally, four
 proposals in sequence:
@@ -262,10 +282,12 @@ lake env lean MatroidFrontierRun.lean  # ~10 min
 
 The composition rung (bounded backward chaining, certificates naming every
 lemma used) sweeps the exclusion family and yields **8 kernel-certified
-facts not stated in Mathlib**, e.g. `M.Coindep X → ¬M.IsCocircuit X` —
-composed from *circuit* lemmas, with unification silently instantiating the
-matroid at `M✶`: the argument ran in the dual without any duality-aware
-code. Full numbers and the baseline comparison: `REPORT_MATROID.md`.
+facts unmatched by the grounding pass** over the 1314-lemma `Matroid.*`
+pool (grounding is tried first and finds no alias — not an exhaustive
+search of Mathlib), e.g. `M.Coindep X → ¬M.IsCocircuit X` — composed from
+*circuit* lemmas, with unification silently instantiating the matroid at
+`M✶`: the argument ran in the dual without any duality-aware code. Full
+numbers and the baseline comparison: `REPORT_MATROID.md`.
 
 ## 10. Where the boundary honestly is
 
