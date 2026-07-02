@@ -5,3 +5,4 @@ import Eureka.Heuristics
 import Eureka.Loop
 import Eureka.LLM
 import Eureka.Booth
+import Eureka.Reflect

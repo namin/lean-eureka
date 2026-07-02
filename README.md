@@ -112,6 +112,34 @@ which is the depth ceiling made visible. Two proposals were merged as
 definitional duplicates of corpus facts. Zero falsehoods survived to the
 corpus; zero garbage evidence reached it (`refused = 0`).
 
+## Stage two: heuristics as code (`Eureka/Reflect.lean`)
+
+The runtime analogue of the model's `.rule` proposals, and the artifact's
+headline made live: the LLM writes a *heuristic* — a Lean metaprogram of
+type `Corpus → MetaM (Array Conjecture)` — which is elaborated, checked
+against the rule policy (interface type, no `sorry`, effect denylist: no
+`IO.Process`/`IO.FS`), compiled through the interpreter, installed, and
+fired. Rejections feed the error text back for a retry, lean-sage style.
+Everything a born heuristic proposes still passes the fact gate; per
+`discovery_sound` the rule gate was never needed for corpus soundness, and
+per `ruleGated_heuristics_invariant` what it buys is policy over the
+heuristic population — the model's division of labor, executed.
+
+`ReflectStub.lean` drives the gate deterministically: a heuristic that
+spawns a process (refused: policy), a heuristic that doesn't elaborate
+(refused: error fed back), a working one (installed; its discovery admitted
+with a grounding certificate), and a well-typed junk heuristic (installed —
+the rule gate checks policy, not taste — with every false conjecture it
+fires refuted at the fact gate).
+
+In the live run, round 1 produced a shotgun: a well-typed schema enumerator
+whose ~90 conjectures were mostly false — refuted for pennies — with 4
+survivors admitted, including the absorption laws `max a (a - b) = a`,
+`min a (a + b) = a`, and `a.gcd (a * b) = a`. The round feedback said
+*favor precision over volume*; round 2's heuristic (a targeted gcd-addition
+family) went 4 admitted of 5 proposed. The proposer's heuristic-writing
+improved across rounds while the trusted base did not move.
+
 ## Keynote axes
 
 | Axis | Instance |
@@ -141,7 +169,9 @@ lake env lean Audit.lean      # axiom audit (all headline theorems axiom-free)
 lake env lean Smoke.lean      # runtime gate smoke test (incl. adversarial round)
 lake env lean Disco.lean      # the discovery run
 lake env lean BoothStub.lean  # booth pipeline test, deterministic, no credentials
-lake env lean BoothRun.lean   # live: discover, then 3 LLM rounds (needs aws CLI + Bedrock)
+lake env lean BoothRun.lean   # live: discover, then 3 LLM conjecture rounds (needs aws CLI + Bedrock)
+lake env lean ReflectStub.lean # rule-gate test, deterministic, no credentials
+lake env lean ReflectRun.lean  # live: the LLM writes heuristic code, gated and fired
 ```
 
 Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
@@ -174,8 +204,11 @@ Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
       namespace instead of hand-picked `Nat` ops (needs the Mathlib dep)
 - [x] LLM-proposed facts through the gate (booth stage one; Bedrock client
       ported from lean-sage)
-- [ ] LLM-proposed *heuristic code*, elaborated, audited, and installed into
-      the running loop (booth stage two — the real reflection move)
+- [x] LLM-proposed *heuristic code*, elaborated, policy-checked, compiled,
+      installed, and fired (booth stage two — the reflection move; see
+      `ReflectRun.lean`)
+- [ ] Born heuristics as persistent citizens: worth-scored, re-fired across
+      generations, able to birth heuristics in turn (depth ≥ 2)
 - [ ] Prover rungs beyond the ladder (`omega`, induction templates) — five
       true LLM conjectures are already open; the proposer outruns the prover
 - [ ] Worth/agenda layer; reflective worth modification behind the gate

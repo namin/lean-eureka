@@ -59,6 +59,7 @@ def invoke (cfg : Config) (prompt : String) : IO (Except String String) := do
     cmd := "aws"
     args := #[
       "bedrock-runtime", "invoke-model",
+      "--cli-read-timeout", "600",
       "--region", cfg.region,
       "--model-id", cfg.modelId,
       "--content-type", "application/json",
