@@ -174,6 +174,34 @@ via parent credit for its child's one grounded discovery, tied with the
 specializer at the top of the agenda. The economics judge the LLM's
 children by the same rules as everything else.
 
+## Mathlib domains (`EurekaMathlib/Domain.lean`)
+
+The low-guidance move, first slice. The user supplies one name — `Matroid` —
+and the system extracts the namespace's predicates from the environment by
+signature shape (9 found: `Indep`, `Dep`, `IsBase`, `IsCircuit`, …; no seed
+file, no curated canonical pool), maps their implication structure, and
+probes invented predicates for certified aliases. `MatroidStub.lean` runs
+it on the synonym tower's own examples from the formal-disco matroid run:
+
+- **Implication edges, kernel-certified**: `IsBase → Indep` (grounded:
+  `Matroid.IsBase.indep`), `IsCircuit → Dep` (grounded:
+  `Matroid.IsCircuit.dep`); 42 candidate implications honestly open — there
+  is no counterexample search in this domain, so non-theorems land in
+  `open`, not `refuted`.
+- **Alias probes, in-process**: `dep_invented` (Matroid.Dep with the
+  conjuncts swapped — not defeq) is certified `↔ Matroid.Dep` by an
+  unfold-then-`tauto` rung. This is the probe that cost ~75s per candidate
+  as a subprocess in the Python system (BRAINSTORM_ALIGN facet 1.B), now a
+  `MetaM` call against the already-loaded environment.
+- **The honest miss**: `is_loop_def` (the run's literal invented loop
+  predicate) is *not* certified — its bridge to `Matroid.IsLoop` runs
+  through `Matroid.singleton_dep : M.Dep {e} ↔ M.IsLoop e`, a transitive
+  chain the one-step ladder cannot compose yet.
+
+The `Eureka` core library remains Mathlib-free — `lake build` is 12 jobs;
+the domain layer is a separate `EurekaMathlib` target, and `MatroidStub` is
+not in CI.
+
 ## Keynote axes
 
 | Axis | Instance |
@@ -208,9 +236,11 @@ lake env lean ReflectStub.lean # rule-gate test, deterministic, no credentials
 lake env lean ReflectRun.lean  # live: the LLM writes heuristic code, gated and fired
 lake env lean EvolveStub.lean  # population engine: worth, budget, kill rule, depth-2 births
 lake env lean EvolveRun.lean   # live: the LLM as one agent in the population
+lake build EurekaMathlib && lake env lean MatroidStub.lean  # matroid microcosm (Mathlib)
 ```
 
-Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
+Toolchain: `leanprover/lean4:v4.30.0`. The `Eureka` core has no
+dependencies; the `EurekaMathlib` domain layer requires Mathlib.
 
 ## Neighbors
 
@@ -234,10 +264,16 @@ Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
       search, prover ladder, generational driver to fixpoint
 - [x] Grounding, first slice: definitional-alias merging at proposal time and
       library grounding certificates (direct and symmetric) at proof time
-- [ ] Grounding probes beyond defeq: `iff` alias certificates via a tactic
-      ladder (the full synonym-tower fix)
-- [ ] Mathlib domains: seed the operation/template pools from a Mathlib
-      namespace instead of hand-picked `Nat` ops (needs the Mathlib dep)
+- [x] Grounding probes beyond defeq: certified `iff` alias probes with an
+      unfold/`tauto`/`aesop` ladder (`aliasProbe`); `=`/`↔`/implication keys
+      and universe-polymorphic lemmas in the grounding pool
+- [x] Mathlib domains, first slice: predicates extracted from a namespace by
+      signature shape, implication sweep with certified edges, alias probes
+      on the actual synonym-tower examples (`MatroidStub.lean`)
+- [ ] Transitive alias chaining (`is_loop_def ↔ Dep {e} ↔ IsLoop` via
+      `Matroid.singleton_dep`) — the standing alias miss
+- [ ] Matroid discovery proper: templates/LLM booth over the extracted
+      predicates; comparison against the formal-disco matroid baselines
 - [x] LLM-proposed facts through the gate (booth stage one; Bedrock client
       ported from lean-sage)
 - [x] LLM-proposed *heuristic code*, elaborated, policy-checked, compiled,

@@ -46,7 +46,7 @@ def parseConjecture (s : String) : MetaM (Option Expr) := do
     let savedMsgs := (← getThe Core.State).messages
     let result ← try
         let e ← Term.TermElabM.run' <| Term.withoutErrToSorry do
-          let e ← Term.elabTerm stx (some (mkSort levelZero))
+          let e ← Term.elabTerm stx (some (mkSort .zero))
           Term.synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e
         if e.hasSorry || e.hasMVar || e.hasFVar then pure none
@@ -61,7 +61,7 @@ a leading `∀`. -/
 def extractCandidates (text : String) : List String :=
   text.splitOn "\n"
     |>.map (fun l =>
-      ((l.trim.dropWhile fun c =>
+      ((l.trimAscii.dropWhile fun c =>
         c == '-' || c == '*' || c == '`' || c == '.' || c == ')' || c.isDigit || c == ' ').trimAscii).toString)
     |>.filter (·.startsWith "∀")
 

@@ -68,7 +68,7 @@ private def fmtW (x : Float) : String :=
 
 private def agentFnType : MetaM Expr :=
   mkArrow (mkConst ``Corpus)
-    (mkApp (mkConst ``MetaM) (mkApp (mkConst ``Array [levelZero]) (mkConst ``RProposal)))
+    (mkApp (mkConst ``MetaM) (mkApp (mkConst ``Array [Level.zero]) (mkConst ``RProposal)))
 
 private unsafe def evalAgentFnUnsafe (e : Expr) : MetaM AgentFn := do
   Meta.evalExpr AgentFn (← agentFnType) e

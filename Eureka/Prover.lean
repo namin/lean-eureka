@@ -68,42 +68,67 @@ def tryRefute (stmt : Expr) (range : Nat := 4) : MetaM (Option String) := do
       return none
   return r.join
 
-/-- Rung 1: the two sides are definitionally equal. -/
+/-- Rung 1: the two sides are definitionally equal (`=` or `↔`). -/
 def tryRefl (stmt : Expr) : MetaM (Option Expr) := do
   let r ← attempt <| forallTelescope stmt fun xs body => do
-      let some (_, lhs, rhs) := body.eq? | return none
-      unless ← withNewMCtxDepth (isDefEq lhs rhs) do return none
-      return some (← mkLambdaFVars xs (← mkEqRefl lhs))
+      if let some (_, lhs, rhs) := body.eq? then
+        unless ← withNewMCtxDepth (isDefEq lhs rhs) do return none
+        return some (← mkLambdaFVars xs (← mkEqRefl lhs))
+      if let some (lhs, rhs) := body.app2? ``Iff then
+        unless ← withNewMCtxDepth (isDefEq lhs rhs) do return none
+        return some (← mkLambdaFVars xs (← mkAppM ``Iff.refl #[lhs]))
+      return none
   return r.join
 
-/-- A library lemma eligible as a grounding certificate, with a cheap
-prefilter key (binder count, head constant of the equation's left side). -/
+/-- The relation shape of a statement body, for the grounding prefilter. -/
+inductive RelKind where
+  | eq
+  | iff
+  | other
+  deriving BEq
+
+/-- Prefilter key: binder count (hypotheses of an implication count, since
+`forallTelescope` absorbs them), relation kind, and the head constant of the
+left side (for `=`/`↔`) or of the conclusion itself. -/
+def statementKey (stmt : Expr) : MetaM (Option (Nat × RelKind × Option Name)) := do
+  let r ← attempt <| forallTelescope stmt fun xs body => do
+    if let some (_, lhs, _) := body.eq? then
+      return some (xs.size, RelKind.eq, lhs.getAppFn.constName?)
+    if let some (lhs, _) := body.app2? ``Iff then
+      return some (xs.size, RelKind.iff, lhs.getAppFn.constName?)
+    return some (xs.size, RelKind.other, body.getAppFn.constName?)
+  return r.join
+
+/-- A library lemma eligible as a grounding certificate. Lemmas with one
+universe parameter are admitted instantiated at `Level.zero`. -/
 structure KnownLemma where
   name : Name
   type : Expr
+  levels : List Level
   binders : Nat
-  lhsHead : Option Name
+  rel : RelKind
+  head : Option Name
 
-/-- Collect the grounding pool: universe-monomorphic theorems under the given
-namespace prefixes, keyed for the prefilter. -/
+/-- Collect the grounding pool: theorems under the given namespace prefixes
+(at most one universe parameter, instantiated at zero), keyed for the
+prefilter. -/
 def collectKnown (prefixes : List Name) : MetaM (Array KnownLemma) := do
   let env ← getEnv
-  let cands : Array (Name × Expr) := env.constants.fold (init := #[]) fun acc n ci =>
-    if prefixes.contains n.getPrefix then
-      match ci with
-      | .thmInfo t => if t.levelParams.isEmpty then acc.push (n, t.type) else acc
-      | _ => acc
-    else acc
+  let cands : Array (Name × Expr × List Level) :=
+    env.constants.fold (init := #[]) fun acc n ci =>
+      if prefixes.any (·.isPrefixOf n) then
+        match ci with
+        | .thmInfo t =>
+          match t.levelParams with
+          | [] => acc.push (n, t.type, [])
+          | [u] => acc.push (n, t.type.instantiateLevelParams [u] [Level.zero], [Level.zero])
+          | _ => acc
+        | _ => acc
+      else acc
   let mut out := #[]
-  for (n, ty) in cands do
-    let key ← try
-      forallTelescope ty fun xs body =>
-        match body.eq? with
-        | some (_, lhs, _) => pure (some (xs.size, lhs.getAppFn.constName?))
-        | none => pure none
-      catch _ => pure none
-    if let some (binders, lhsHead) := key then
-      out := out.push { name := n, type := ty, binders, lhsHead }
+  for (n, ty, levels) in cands do
+    if let some (binders, rel, head) ← statementKey ty then
+      out := out.push { name := n, type := ty, levels, binders, rel, head }
   return out
 
 /-- Rung 2: the conjecture is definitionally an existing library lemma. The
@@ -111,27 +136,30 @@ proof is that lemma — and the discovery is thereby *grounded*: it is an
 alias, and the caller reports which. -/
 def tryKnown (known : Array KnownLemma) (stmt : Expr) :
     MetaM (Option (Expr × Name)) := do
-  let key ← forallTelescope stmt fun xs body =>
-    match body.eq? with
-    | some (_, lhs, _) => pure (some (xs.size, lhs.getAppFn.constName?))
-    | none => pure none
-  let some (binders, lhsHead) := key | return none
+  let some (binders, rel, head) ← statementKey stmt | return none
   for k in known do
-    if k.binders == binders && k.lhsHead == lhsHead then
+    if k.binders == binders && k.rel == rel && k.head == head then
       if ← defeqSafe k.type stmt then
-        return some (mkConst k.name, k.name)
+        return some (mkConst k.name k.levels, k.name)
   return none
 
 /-- Rung 2b: the conjecture is an existing library lemma *stated the other
-way around*. The proof is the lemma with `Eq.symm` applied pointwise. -/
+way around* (`=` or `↔`). The proof is the lemma with `Eq.symm`/`Iff.symm`
+applied pointwise. -/
 def tryKnownSymm (known : Array KnownLemma) (stmt : Expr) :
     MetaM (Option (Expr × Name)) := do
   let r ← attempt <| forallTelescope stmt fun xs body => do
-      let some (_, lhs, rhs) := body.eq? | return none
-      let symmStmt ← mkForallFVars xs (← mkEq rhs lhs)
-      let some (pf, nm) ← tryKnown known symmStmt | return none
-      let proof ← mkLambdaFVars xs (← mkEqSymm (mkAppN pf xs))
-      return some (proof, nm)
+      if let some (_, lhs, rhs) := body.eq? then
+        let symmStmt ← mkForallFVars xs (← mkEq rhs lhs)
+        let some (pf, nm) ← tryKnown known symmStmt | return none
+        let proof ← mkLambdaFVars xs (← mkEqSymm (mkAppN pf xs))
+        return some (proof, nm)
+      if let some (lhs, rhs) := body.app2? ``Iff then
+        let symmStmt ← mkForallFVars xs (mkApp2 (mkConst ``Iff) rhs lhs)
+        let some (pf, nm) ← tryKnown known symmStmt | return none
+        let proof ← mkLambdaFVars xs (← mkAppM ``Iff.symm #[mkAppN pf xs])
+        return some (proof, nm)
+      return none
   return r.join
 
 /-- Rungs 3 and 4: simp, with an explicit lemma set. Called first with the
@@ -194,6 +222,12 @@ def hunt (known : Array KnownLemma) (corpusLemmas : Array Name) (stmt : Expr) :
     return .proved pf "simp"
   if let some pf ← tryTacticRung "omega" stmt then
     return .proved pf "omega"
+  -- Mathlib rungs: the tactics parse only when the ambient environment
+  -- imports Mathlib, so these self-disable in dependency-free runs.
+  if let some pf ← tryTacticRung "tauto" stmt then
+    return .proved pf "tauto"
+  if let some pf ← tryTacticRung "aesop" stmt then
+    return .proved pf "aesop"
   return .stillOpen
 
 end Runtime

@@ -1,0 +1,149 @@
+import Eureka
+import Mathlib
+
+/-!
+# Mathlib domains: predicates from a namespace, no seed files
+
+The low-guidance move: the user names a Mathlib namespace (e.g. `Matroid`);
+the system extracts its predicates from the environment by signature shape,
+generates relational conjectures between them, and probes invented
+predicates for kernel-certified aliases. No hand-written seed JSON, no
+curated canonical pool — the environment is both.
+
+This is the in-process answer to the formal-disco alignment toolchain: the
+probes that took ~75s each as `lake env lean` subprocesses (BRAINSTORM_ALIGN
+facet 1.B) are `MetaM` calls against an environment that is already loaded.
+-/
+
+open Lean Meta
+
+namespace Eureka
+namespace Runtime
+
+/-- The argument shape of a collected predicate. -/
+inductive PredShape where
+  | element  -- `Matroid α → α → Prop`
+  | set      -- `Matroid α → Set α → Prop`
+  deriving BEq
+
+structure PredInfo where
+  name : Name
+  shape : PredShape
+
+/-- Collect predicates `Carrier α → α → Prop` and `Carrier α → Set α → Prop`
+from a namespace, where `Carrier` is the namespace's structure itself
+(e.g. `Matroid`). -/
+def collectPredicates (carrier : Name) : MetaM (Array PredInfo) := do
+  let env ← getEnv
+  let cands : Array (Name × Expr) :=
+    env.constants.fold (init := #[]) fun acc n ci =>
+      if n.getPrefix == carrier && !n.isInternal then
+        match ci with
+        | .defnInfo t =>
+          match t.levelParams with
+          | [u] => acc.push (n, t.type.instantiateLevelParams [u] [Level.zero])
+          | _ => acc
+        | _ => acc
+      else acc
+  let mut out := #[]
+  for (n, ty) in cands do
+    let shape? ← attempt <| forallTelescope ty fun xs body => do
+      unless body == .sort .zero do return none
+      unless xs.size == 3 do return none
+      let αTy ← inferType xs[0]!
+      unless αTy.isSort do return none
+      let mTy ← inferType xs[1]!
+      unless mTy.getAppFn.constName? == some carrier do return none
+      let xTy ← inferType xs[2]!
+      if xTy == xs[0]! then
+        return some PredShape.element
+      if xTy.getAppFn.constName? == some ``Set && xTy.getAppArgs == #[xs[0]!] then
+        return some PredShape.set
+      return none
+    if let some (some shape) := shape? then
+      out := out.push { name := n, shape }
+  return out.qsort (fun a b => a.name.toString < b.name.toString)
+
+/-- Build `∀ (α : Type) (M : Carrier α) (x : _), <mk body>` for a shape. -/
+def mkPredForall (carrier : Name) (shape : PredShape)
+    (mkBody : Expr → Expr → MetaM Expr) : MetaM Expr := do
+  withLocalDeclD `α (mkSort (.succ .zero)) fun α => do
+    let carrierTy := mkApp (mkConst carrier [Level.zero]) α
+    withLocalDeclD `M carrierTy fun M => do
+      let xTy := match shape with
+        | .element => α
+        | .set => mkApp (mkConst ``Set [Level.zero]) α
+      withLocalDeclD `X xTy fun X => do
+        mkForallFVars #[α, M, X] (← mkBody M X)
+
+/-- Conjecture `∀ α M X, P M X → Q M X` for same-shape predicates. -/
+def mkImplConjecture (carrier : Name) (P Q : PredInfo) : MetaM Conjecture := do
+  let stmt ← mkPredForall carrier P.shape fun M X => do
+    mkArrow (← mkAppM P.name #[M, X]) (← mkAppM Q.name #[M, X])
+  return { name := .mkSimple s!"{P.name.getString!}_imp_{Q.name.getString!}",
+           stmt, origin := `implication }
+
+/-- Conjecture `∀ α M X, F M X ↔ P M X` — the alias probe for an invented
+predicate `F` against a canonical one `P`. -/
+def mkIffConjecture (carrier : Name) (shape : PredShape) (F P : Name) :
+    MetaM Conjecture := do
+  let stmt ← mkPredForall carrier shape fun M X => do
+    return mkApp2 (mkConst ``Iff) (← mkAppM F #[M, X]) (← mkAppM P #[M, X])
+  return { name := .mkSimple s!"{F.getString!}_alias_{P.getString!}",
+           stmt, origin := `alias }
+
+/-- Map the implication structure among a namespace's predicates: judge
+`P → Q` for every ordered pair of same-shape predicates. Admitted edges are
+kernel-certified; there is no counterexample search in this domain, so
+non-theorems land in `open` and are reported as such. -/
+def implicationSweep (known : Array KnownLemma) (carrier : Name)
+    (preds : Array PredInfo) (corpus : Corpus) :
+    MetaM (Corpus × Nat × Array String) := do
+  let mut corpus := corpus
+  let mut opens : Array String := #[]
+  let mut admitted := 0
+  for P in preds do
+    for Q in preds do
+      if P.name != Q.name && P.shape == Q.shape then
+        let c ← mkImplConjecture carrier P Q
+        let pretty := toString (← ppExpr c.stmt)
+        let (corpus', outcome) ← judge known corpus c
+        corpus := corpus'
+        match outcome with
+        | .admitted _ note =>
+          admitted := admitted + 1
+          IO.println s!"  ✓ {pretty} — admitted ({note})"
+        | .stillOpen => opens := opens.push pretty
+        | .refuted cex => IO.println s!"  ✗ {pretty} — refuted ({cex})"
+        | .refusedAtGate => IO.println s!"  ! {pretty} — REFUSED at gate"
+  return (corpus, admitted, opens)
+
+/-- Probe an invented predicate for a certified alias among same-shape
+canonical predicates: the generic hunt first (defeq, known-iff lemmas direct
+and symmetric, simp, aesop), then a targeted rung that unfolds both
+predicates and closes propositionally. Returns the grounding, if any rung
+finds one — the certificate is a kernel-checked `iff`. -/
+def aliasProbe (known : Array KnownLemma) (carrier : Name) (shape : PredShape)
+    (invented : Name) (preds : Array PredInfo) (corpus : Corpus) :
+    MetaM (Corpus × Option (Name × String)) := do
+  let mut corpus := corpus
+  for P in preds do
+    if P.shape == shape then
+      let c ← mkIffConjecture carrier shape invented P.name
+      let (corpus', outcome) ← judge known corpus c
+      corpus := corpus'
+      match outcome with
+      | .admitted _ note => return (corpus, some (P.name, note))
+      | .stillOpen =>
+        for tac in [s!"unfold {invented} {P.name}; tauto",
+                    s!"unfold {invented} {P.name}; aesop"] do
+          if let some pf ← tryTacticRung tac c.stmt then
+            let nm ← freshName c.name
+            if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+              corpus := { corpus with facts := corpus.facts.push f }
+              return (corpus, some (P.name, s!"by {tac}"))
+      | _ => pure ()
+  return (corpus, none)
+
+end Runtime
+end Eureka

@@ -30,7 +30,7 @@ abbrev ProposeFn := Corpus → MetaM (Array Conjecture)
 
 def proposeFnType : MetaM Expr :=
   mkArrow (mkConst ``Corpus)
-    (mkApp (mkConst ``MetaM) (mkApp (mkConst ``Array [levelZero]) (mkConst ``Conjecture)))
+    (mkApp (mkConst ``MetaM) (mkApp (mkConst ``Array [Level.zero]) (mkConst ``Conjecture)))
 
 private unsafe def evalProposeFnUnsafe (e : Expr) : MetaM ProposeFn := do
   Meta.evalExpr ProposeFn (← proposeFnType) e
