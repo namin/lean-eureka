@@ -28,7 +28,7 @@ namespace Runtime
 /-- The interface type a proposed heuristic must inhabit. -/
 abbrev ProposeFn := Corpus → MetaM (Array Conjecture)
 
-private def proposeFnType : MetaM Expr :=
+def proposeFnType : MetaM Expr :=
   mkArrow (mkConst ``Corpus)
     (mkApp (mkConst ``MetaM) (mkApp (mkConst ``Array [levelZero]) (mkConst ``Conjecture)))
 
@@ -53,10 +53,10 @@ def rulePolicy (e : Expr) : Option String := Id.run do
         return some s!"references banned constant {c}"
   return none
 
-/-- Elaborate a proposed heuristic term at the interface type, with names
-from `Lean`, `Lean.Meta`, and `Eureka.Runtime` opened. Returns the
-elaborated term or the error text (for LLM feedback). -/
-def elabProposeTerm (src : String) : MetaM (Except String Expr) := do
+/-- Elaborate a proposed term at the given type, with names from `Lean`,
+`Lean.Meta`, and `Eureka.Runtime` opened. Returns the elaborated term or the
+error text (for LLM feedback). -/
+def elabTermAt (type : Expr) (src : String) : MetaM (Except String Expr) := do
   let src := s!"open Lean Meta Eureka.Runtime in\n{src}"
   match Parser.runParserCategory (← getEnv) `term src with
   | .error e => return .error s!"parse error: {e}"
@@ -64,7 +64,7 @@ def elabProposeTerm (src : String) : MetaM (Except String Expr) := do
     let savedMsgs := (← getThe Core.State).messages
     let result ← try
         let e ← Term.TermElabM.run' <| Term.withoutErrToSorry do
-          let e ← Term.elabTerm stx (some (← proposeFnType))
+          let e ← Term.elabTerm stx (some type)
           Term.synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e
         if e.hasSorry then pure (.error "elaborated term contains sorry")
@@ -75,6 +75,10 @@ def elabProposeTerm (src : String) : MetaM (Except String Expr) := do
         pure (.error (← ex.toMessageData.toString))
     modifyThe Core.State fun st => { st with messages := savedMsgs }
     return result
+
+/-- Elaborate a proposed heuristic term at the stage-one interface type. -/
+def elabProposeTerm (src : String) : MetaM (Except String Expr) := do
+  elabTermAt (← proposeFnType) src
 
 /-- The rule gate: elaborate, policy-check, compile. On success the born
 heuristic is returned, ready to fire. -/

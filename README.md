@@ -140,6 +140,38 @@ survivors admitted, including the absorption laws `max a (a - b) = a`,
 family) went 4 admitted of 5 proposed. The proposer's heuristic-writing
 improved across rounds while the trusted base did not move.
 
+## The population (`Eureka/Evolve.lean`)
+
+The EURISKO layer. Template and born heuristics live in one population as
+`Agent`s; any agent may propose facts *or new heuristics as source code*
+(`RProposal.rule`), so heuristics birth heuristics to any depth — births
+pass the rule gate, facts pass the fact gate, exactly the model's
+`admitRuleGated`. Worth is earned, not declared:
+
+    worth = min 1 (admitRate × dupPenalty)
+
+with a duplication penalty that prices in the synonym tower (the
+worth-credits-duplicators bias observed in formal-disco-eurisko-verified is
+unprofitable here by construction) and parent credit that pays
+heuristic-writers for their children's discoveries. Each generation spends
+a judge budget in worth order — low-worth agents starve — and agents with
+enough trials and negligible worth are killed.
+
+`EvolveStub.lean` (deterministic, no LLM): the agenda visibly reorders on
+worth; `junkH` is killed after one generation; the `specializerH`
+meta-heuristic births an explorer per operation (heuristic code generated
+from corpus data), and each explorer births a probe — reflective depth 2,
+with facts like `min a (min a b) = min a b` (grounded: `Nat.min_self_assoc`)
+discovered by a heuristic written by a heuristic written by a heuristic.
+
+`EvolveRun.lean` (live): the LLM joins the population as `llm_oracle`, an
+agent whose only move is to birth heuristics. In the live run its two
+children were shotguns and the kill rule executed both (worth 0.03 and 0.02
+after ~15 and 25 refutations) — while the oracle itself ended at worth 1.00
+via parent credit for its child's one grounded discovery, tied with the
+specializer at the top of the agenda. The economics judge the LLM's
+children by the same rules as everything else.
+
 ## Keynote axes
 
 | Axis | Instance |
@@ -172,6 +204,8 @@ lake env lean BoothStub.lean  # booth pipeline test, deterministic, no credentia
 lake env lean BoothRun.lean   # live: discover, then 3 LLM conjecture rounds (needs aws CLI + Bedrock)
 lake env lean ReflectStub.lean # rule-gate test, deterministic, no credentials
 lake env lean ReflectRun.lean  # live: the LLM writes heuristic code, gated and fired
+lake env lean EvolveStub.lean  # population engine: worth, budget, kill rule, depth-2 births
+lake env lean EvolveRun.lean   # live: the LLM as one agent in the population
 ```
 
 Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
@@ -207,8 +241,9 @@ Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
 - [x] LLM-proposed *heuristic code*, elaborated, policy-checked, compiled,
       installed, and fired (booth stage two — the reflection move; see
       `ReflectRun.lean`)
-- [ ] Born heuristics as persistent citizens: worth-scored, re-fired across
-      generations, able to birth heuristics in turn (depth ≥ 2)
+- [x] Born heuristics as persistent citizens: one population of agents,
+      multiplicative worth with duplication penalty and parent credit,
+      budget-by-worth, kill rule, births to depth ≥ 2 (`Eureka/Evolve.lean`)
 - [ ] Prover rungs beyond the ladder (`omega`, induction templates) — five
       true LLM conjectures are already open; the proposer outruns the prover
 - [ ] Worth/agenda layer; reflective worth modification behind the gate
