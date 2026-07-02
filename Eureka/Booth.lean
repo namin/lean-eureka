@@ -30,10 +30,6 @@ structure BoothLog where
   «open» : Array String := #[]
   unparseable : Array String := #[]
 
-structure BoothConfig where
-  rounds : Nat := 3
-  perRound : Nat := 8
-
 /-- Parse and elaborate one proposed line at type `Prop`. Everything about
 the result is re-checked downstream; this is convenience, not trust. -/
 def parseConjecture (s : String) : MetaM (Option Expr) := do
@@ -65,7 +61,7 @@ def extractCandidates (text : String) : List String :=
         c == '-' || c == '*' || c == '`' || c == '.' || c == ')' || c.isDigit || c == ' ').trimAscii).toString)
     |>.filter (·.startsWith "∀")
 
-private def renderLog (log : BoothLog) : String := Id.run do
+def renderLog (log : BoothLog) : String := Id.run do
   let mut s := ""
   unless log.admitted.isEmpty do
     s := s ++ "Admitted into the corpus (do not restate):\n"
@@ -113,12 +109,18 @@ Output format — exactly one conjecture per line, as a bare Lean 4 term, nothin
 ∀ (a b : Nat), <lhs> = <rhs>
 No prose, no numbering, no code fences."
 
+structure BoothConfig where
+  rounds : Nat := 3
+  perRound : Nat := 8
+  knownPrefixes : List Name := [`Nat]
+  render : Corpus → Option BoothLog → Nat → MetaM String := renderPrompt
+
 /-- Run booth rounds against `call`, starting from `seed`. Everything the
 model proposes goes through the same dedup/refute/hunt/gate pipeline as the
 template heuristics. -/
 def booth (call : String → IO (Except String String))
     (cfg : BoothConfig := {}) (seed : Corpus := {}) : MetaM Corpus := do
-  let known ← collectKnown [`Nat]
+  let known ← collectKnown cfg.knownPrefixes
   let mut corpus := seed
   let mut attempted : Array (Expr × Name) :=
     corpus.facts.map fun f => (f.stmt, f.name)
@@ -127,7 +129,7 @@ def booth (call : String → IO (Except String String))
   for round in [1 : cfg.rounds + 1] do
     IO.println ""
     IO.println s!"── booth round {round} ──"
-    let prompt ← renderPrompt corpus lastLog cfg.perRound
+    let prompt ← cfg.render corpus lastLog cfg.perRound
     match ← call prompt with
     | .error e =>
       IO.println s!"  LLM call failed: {e}"

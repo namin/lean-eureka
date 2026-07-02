@@ -204,6 +204,40 @@ The `Eureka` core library remains Mathlib-free — `lake build` is 12 jobs;
 the domain layer is a separate `EurekaMathlib` target, and `MatroidStub` is
 not in CI.
 
+## Matroid discovery proper (`EurekaMathlib/MatroidDisco.lean`)
+
+The capstone run (`MatroidDiscoRun.lean`): template agents derived from the
+extracted predicates — implications, exclusions, **duality** (`P M✶ X ↔ Q M
+X`), and singleton bridges (`P e ↔ Q {e}`) — through the population engine
+with the `Matroid` grounding pool, then LLM booth rounds on top. A live run
+admitted **19 facts, every one kernel-gated with a named certificate**,
+among them:
+
+- the singleton bridges `IsLoop ↔ Dep {e}` / `IsLoop ↔ IsCircuit {e}` /
+  `IsColoop ↔ IsCocircuit {e}` (all grounded);
+- the duality laws `M✶.Coindep ↔ M.Indep` (grounded) and
+  `M✶.Indep ↔ M.Coindep` — the latter admitted by **refl**: a definitional
+  discovery, Mathlib defines coindependence by duality;
+- LLM-proposed and certified: `M.IsBase B → M✶.IsBase (M.E \ B)` (grounded:
+  `Matroid.IsBase.compl_isBase_dual`) — a Whitney-duality statement of the
+  very flavor the formal-disco baseline run targeted with a ×100 worth
+  boost and failed to prove in 500 attempts; here it arrives certified at
+  admission — plus `IsCocircuit ↔ M✶.IsCircuit` (refl), the ground-set
+  laws, and `IsColoop e → IsBase B → e ∈ B`.
+
+83 conjectures remain honestly open (no refuter in this domain). And the
+run reproduced a baseline phenomenon mechanistically: the implications
+agent was **killed by the kill rule** (worth 0.03 after 16 straight opens)
+before its enumeration reached its true conjectures — in a refuter-free
+domain, worth economics starve slow-burning template agents, which is
+REPORT_ALIGN's priority-starvation finding restated as a mechanism.
+
+Honest scope note: this run grounds conjectures over *existing* Mathlib
+predicates — its admissions are certified rediscoveries and definitional
+observations, demonstrating the verified-reflection machinery on the
+baseline's domain. Inventing new *concepts* (definitions with their own
+grounding lifecycle) is the remaining frontier.
+
 ## Keynote axes
 
 | Axis | Instance |
@@ -277,8 +311,16 @@ dependencies; the `EurekaMathlib` domain layer requires Mathlib.
       `is_loop_def ↔ Dep {e} ↔ IsLoop` through `Matroid.singleton_dep`
 - [ ] Deeper chains (search the iff graph, not one step); alias chaining for
       `=`-shaped grounding via `Eq.trans`
-- [ ] Matroid discovery proper: templates/LLM booth over the extracted
-      predicates; comparison against the formal-disco matroid baselines
+- [x] Matroid discovery proper: implication/exclusion/duality/singleton
+      template agents + LLM booth over the extracted predicates; 19
+      certified facts incl. Whitney-duality statements
+      (`MatroidDiscoRun.lean`)
+- [ ] Concept invention: proposed *definitions* as a proposal kind, with
+      their own grounding lifecycle (the remaining frontier vs. the
+      formal-disco baseline)
+- [ ] A refuter for predicate domains (finite matroid enumeration /
+      `Decidable` instances) so false template conjectures die as `refuted`
+      rather than lingering `open`
 - [x] LLM-proposed facts through the gate (booth stage one; Bedrock client
       ported from lean-sage)
 - [x] LLM-proposed *heuristic code*, elaborated, policy-checked, compiled,

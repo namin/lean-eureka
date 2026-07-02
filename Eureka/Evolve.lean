@@ -101,12 +101,13 @@ structure EvolveConfig where
   perAgentCap : Nat := 25
   minTrials : Nat := 10
   killThreshold : Float := 0.05
+  knownPrefixes : List Name := [`Nat]
 
 /-- Run the population. Every fact still enters through `commitFact`; every
 birth still enters through the rule gate. Worth only decides *attention*. -/
 def evolve (initial : List Agent) (cfg : EvolveConfig := {})
     (seed : Corpus := {}) : MetaM Corpus := do
-  let known ← collectKnown [`Nat]
+  let known ← collectKnown cfg.knownPrefixes
   let mut corpus := seed
   let mut attempted : Array (Expr × Name) :=
     corpus.facts.map fun f => (f.stmt, f.name)
