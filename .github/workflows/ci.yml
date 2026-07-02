@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+      - name: axiom audit
+        run: lake env lean Audit.lean
+      - name: gate smoke test (incl. adversarial round)
+        run: lake env lean Smoke.lean
+      - name: discovery run
+        run: lake env lean Disco.lean
+      - name: booth pipeline (deterministic)
+        run: lake env lean BoothStub.lean
+      - name: rule gate (deterministic)
+        run: lake env lean ReflectStub.lean
+      - name: population engine (deterministic)
+        run: lake env lean EvolveStub.lean

@@ -63,8 +63,8 @@ the litter is refused at admission.
 from templates and from the corpus (nothing hardcoded), a counterexample
 search refutes by evaluation, a prover ladder hunts for evidence (`refl`,
 grounding against the `Nat.*` library — direct and symmetric — then simp
-with the corpus itself, then the default simp set), and the gate alone
-admits. On the `Nat` algebra demo (7 operations, 5 law templates plus a
+with the corpus itself, then the default simp set, then `omega`), and the
+gate alone admits. On the `Nat` algebra demo (7 operations, 5 law templates plus a
 corpus-reading mixer):
 
 ```
@@ -108,7 +108,9 @@ cannot express — `∀ a b, a - b + b = max a b` (grounded: `Nat.sub_add_eq_max
 facts admitted by simp with no library alias. Five true-but-unproved
 conjectures were honestly reported open (`min a b + max a b = a + b`,
 `a² - b² = (a-b)(a+b)`, …): the proposer already outruns the tactic ladder,
-which is the depth ceiling made visible. Two proposals were merged as
+which is the depth ceiling made visible. (The `omega` rung, added since,
+proves the linear four; the nonlinear `min a b * max a b = a * b` still
+stands open — the ceiling moves, honestly, one rung at a time.) Two proposals were merged as
 definitional duplicates of corpus facts. Zero falsehoods survived to the
 corpus; zero garbage evidence reached it (`refused = 0`).
 
@@ -244,7 +246,9 @@ Toolchain: `leanprover/lean4:v4.30.0`, no dependencies.
 - [x] Born heuristics as persistent citizens: one population of agents,
       multiplicative worth with duplication penalty and parent credit,
       budget-by-worth, kill rule, births to depth ≥ 2 (`Eureka/Evolve.lean`)
-- [ ] Prover rungs beyond the ladder (`omega`, induction templates) — five
-      true LLM conjectures are already open; the proposer outruns the prover
+- [x] `omega` rung via generic by-tactic elaboration (`tryTacticRung`) —
+      closes the linear opens from the live runs
+- [ ] Further prover rungs (induction templates, nonlinear arithmetic) —
+      `min a b * max a b = a * b` is the standing open
 - [ ] Worth/agenda layer; reflective worth modification behind the gate
 - [ ] Matroid microcosm; comparison against the formal-disco baselines

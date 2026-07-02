@@ -15,7 +15,7 @@ an alias, and the output says so. This is the in-process answer to the
 synonym-tower failure mode.
 -/
 
-open Lean Meta
+open Lean Meta Elab
 
 namespace Eureka
 namespace Runtime
@@ -154,6 +154,27 @@ def trySimpWith (lemmas : Array Name) (useDefault : Bool) (stmt : Expr) :
     | some _ => return none
   return r.join
 
+/-- A generic tactic rung: enter the binders, elaborate `by <tac>` against
+the body, and abstract the proof. No `TacticM` plumbing — the elaborator
+does the work, and failures (including logged ones) leave no trace. -/
+def tryTacticRung (tacSrc : String) (stmt : Expr) : MetaM (Option Expr) := do
+  let r ← attempt <| forallTelescope stmt fun xs body => do
+    match Parser.runParserCategory (← getEnv) `term s!"by {tacSrc}" with
+    | .error _ => return none
+    | .ok stx =>
+      let savedMsgs := (← getThe Core.State).messages
+      let res ← try
+          let e ← Term.TermElabM.run' <| Term.withoutErrToSorry do
+            let e ← Term.elabTerm stx (some body)
+            Term.synthesizeSyntheticMVarsNoPostponing
+            instantiateMVars e
+          if e.hasSorry || e.hasMVar then pure none
+          else pure (some (← mkLambdaFVars xs e))
+        catch _ => pure none
+      modifyThe Core.State fun st => { st with messages := savedMsgs }
+      return res
+  return r.join
+
 /-- The hunt: refute first (cheap, and it kills the treadmill of spending
 proof effort on falsehoods), then the proof ladder. -/
 def hunt (known : Array KnownLemma) (corpusLemmas : Array Name) (stmt : Expr) :
@@ -171,6 +192,8 @@ def hunt (known : Array KnownLemma) (corpusLemmas : Array Name) (stmt : Expr) :
       return .proved pf "simp[corpus]"
   if let some pf ← trySimpWith corpusLemmas true stmt then
     return .proved pf "simp"
+  if let some pf ← tryTacticRung "omega" stmt then
+    return .proved pf "omega"
   return .stillOpen
 
 end Runtime
