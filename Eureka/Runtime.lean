@@ -56,14 +56,21 @@ def allowedAxioms : List Name := [``propext, ``Classical.choice, ``Quot.sound]
 /-- The cheap front of the gate: reject `sorry`, metavariables, and loose
 free variables; require the statement to be a `Prop`; check the alleged proof
 against the statement up to definitional equality. The kernel behind
-(`commitFact`) remains the authority. -/
+(`commitFact`) remains the authority. A screening check that blows up at
+runtime (recursion depth, heartbeats) is a refusal, not an error — refusal
+is safe. -/
 def screenFact (p : FactProposal) : MetaM (Option Fact) := do
   if p.stmt.hasSorry || p.proof.hasSorry then return none
   if p.stmt.hasMVar || p.proof.hasMVar then return none
   if p.stmt.hasFVar || p.proof.hasFVar then return none
-  unless ← isProp p.stmt do return none
-  let ty ← inferType p.proof
-  unless ← isDefEq ty p.stmt do return none
+  let ok ← tryCatchRuntimeEx
+    (try
+      withCurrHeartbeats do
+        unless ← isProp p.stmt do return false
+        isDefEq (← inferType p.proof) p.stmt
+      catch _ => return false)
+    (fun _ => return false)
+  unless ok do return none
   return some { name := p.name, stmt := p.stmt, proof := p.proof }
 
 /-- The gate: screen, submit to the kernel as a theorem, then audit the
@@ -72,8 +79,12 @@ additions are rolled back and the proposal is dropped — refusal is safe,
 exactly as in the model (`Eureka.admit`'s `else` branch). Note the rollback
 covers only this function's additions: a heuristic may have added
 declarations of its own during `propose`, and those persist — the gate
-protects the corpus, not the ambient environment. -/
-def commitFact (p : FactProposal) : MetaM (Option Fact) := do
+protects the corpus, not the ambient environment.
+
+The gate runs on its own heartbeat budget (`withCurrHeartbeats`): budgets
+are cumulative per command, and whatever untrusted proposers spent hunting
+must not starve the admission check itself. -/
+def commitFact (p : FactProposal) : MetaM (Option Fact) := withCurrHeartbeats do
   let some f ← screenFact p | return none
   let env ← getEnv
   try

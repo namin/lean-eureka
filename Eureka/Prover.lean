@@ -30,10 +30,17 @@ inductive Verdict where
 /-- Run one evidence attempt, absorbing *all* failures — including runtime
 ones like max-recursion-depth, which plain `try/catch` lets through. This
 matters: simp over a corpus of discovered rewrite rules can genuinely
-diverge, and a rung that blows up is just a rung that failed. -/
+diverge, and a rung that blows up is just a rung that failed.
+
+Each attempt also gets its *own* heartbeat budget (`withCurrHeartbeats`):
+heartbeats are cumulative per command, so without the re-baseline a long
+discovery run starves — hundreds of honest rung failures exhaust the
+command's budget and an unrelated later `isDefEq` times out. One attempt,
+one budget; a rung that blows its budget is still just a rung that
+failed. -/
 def attempt {α : Type} (x : MetaM α) : MetaM (Option α) :=
   tryCatchRuntimeEx
-    (try some <$> x catch _ => return none)
+    (try some <$> withCurrHeartbeats x catch _ => return none)
     (fun _ => return none)
 
 /-- `isDefEq` that treats any failure — including runtime blowup — as
@@ -257,48 +264,65 @@ def tryCompose (known : Array KnownLemma) (stmt : Expr) :
     let used ← usedRef.get
     return some (pf, String.intercalate " + " (used.toList.reverse.map toString))
 
-/-- One chaining candidate: try to close `∀ xs, lhs ↔ rhs` through known
-lemma `k : ∀ ys, A ↔ B`, matching `B ≐ rhs` (or `A ≐ rhs` when `flip`),
-proving the remaining `∀ xs, lhs ↔ mid` with `subProve`, and composing with
-`Iff.trans`. -/
+/-- One chaining candidate: try to close `∀ xs, lhs ~ rhs` (`~` is `=` or
+`↔`, per `rel`) through known lemma `k : ∀ ys, A ~ B`, matching `B ≐ rhs`
+(or `A ≐ rhs` when `flip`), proving the remaining `∀ xs, lhs ~ mid` with
+`subProve`, and composing with `Eq.trans`/`Iff.trans`. -/
 private def chainVia (k : KnownLemma) (flip : Bool)
-    (xs : Array Expr) (lhs rhs : Expr)
+    (xs : Array Expr) (lhs rhs : Expr) (rel : RelKind)
     (subProve : Expr → MetaM (Option Expr)) : MetaM (Option Expr) := do
   let (mvs, _, kbody) ← forallMetaTelescope k.type
-  let some (ka, kb) := kbody.app2? ``Iff | return none
+  let some (ka, kb) :=
+    (if rel == RelKind.eq then kbody.eq?.map fun (_, a, b) => (a, b)
+     else kbody.app2? ``Iff) | return none
   let (matchSide, otherSide) := if flip then (ka, kb) else (kb, ka)
   unless ← isDefEq matchSide rhs do return none
   let mid ← instantiateMVars otherSide
   if mid.hasExprMVar then return none
   let kApp ← instantiateMVars (mkAppN (mkConst k.name k.levels) mvs)
   if kApp.hasExprMVar then return none
-  let subStmt ← mkForallFVars xs (mkApp2 (mkConst ``Iff) lhs mid)
+  let subStmt ← mkForallFVars xs
+    (← if rel == RelKind.eq then mkEq lhs mid
+       else pure (mkApp2 (mkConst ``Iff) lhs mid))
   let some h₁ ← subProve subStmt | return none
-  let bridge ← if flip then mkAppM ``Iff.symm #[kApp] else pure kApp
+  let bridge ←
+    if flip then
+      if rel == RelKind.eq then mkEqSymm kApp else mkAppM ``Iff.symm #[kApp]
+    else pure kApp
+  let step := mkAppN h₁ xs
   let proof ← mkLambdaFVars xs
-    (← mkAppM ``Iff.trans #[mkAppN h₁ xs, bridge])
+    (← if rel == RelKind.eq then mkEqTrans step bridge
+       else mkAppM ``Iff.trans #[step, bridge])
   return some proof
 
-/-- Transitive grounding, one step deep: certify `∀ xs, lhs ↔ rhs` by
-composing a `subProve`-provable step `lhs ↔ mid` with a known library
-`iff` bridging `mid ↔ rhs`. The certificate names the bridging lemma.
-This is what closes alias chains like
-`is_loop_def ↔ M.Dep {e} ↔ M.IsLoop e` (via `Matroid.singleton_dep`). -/
+/-- Transitive grounding, one step deep: certify `∀ xs, lhs ~ rhs` (`=` or
+`↔`) by composing a `subProve`-provable step `lhs ~ mid` with a known
+library lemma bridging `mid ~ rhs`, via `Eq.trans`/`Iff.trans`. The
+certificate names the bridging lemma. This is what closes alias chains like
+`is_loop_def ↔ M.Dep {e} ↔ M.IsLoop e` (via `Matroid.singleton_dep`) — and,
+on the `=` side, grounds invented definitions like
+`double n = n + n = 2 * n` (via `Nat.two_mul`). -/
 def tryKnownChain (known : Array KnownLemma) (stmt : Expr)
     (subProve : Expr → MetaM (Option Expr)) :
     MetaM (Option (Expr × Name)) := do
   let r ← attempt <| forallTelescope stmt fun xs body => do
-    let some (lhs, rhs) := body.app2? ``Iff | return none
+    let (rel, lhs, rhs) ←
+      if let some (_, lhs, rhs) := body.eq? then
+        pure (RelKind.eq, lhs, rhs)
+      else if let some (lhs, rhs) := body.app2? ``Iff then
+        pure (RelKind.iff, lhs, rhs)
+      else
+        return none
     let rhsHead := rhs.getAppFn.constName?
     for k in known do
-      if k.rel == RelKind.iff then
+      if k.rel == rel then
         -- prune on the head of the side we must match against `rhs`
         for flip in [false, true] do
           let matchHead := if flip then k.head else k.head2
           if matchHead != rhsHead then
             continue
           let res ← withNewMCtxDepth <|
-            (attempt (chainVia k flip xs lhs rhs subProve))
+            (attempt (chainVia k flip xs lhs rhs rel subProve))
           if let some (some proof) := res then
             return some (proof, k.name)
     return none
@@ -364,6 +388,15 @@ def hunt (known : Array KnownLemma) (corpusLemmas : Array Name) (stmt : Expr) :
     return .proved pf "simp"
   if let some pf ← tryTacticRung "omega" stmt then
     return .proved pf "omega"
+  -- Case split on the order: `min`/`max` unfold to `if`s, `split` cases
+  -- them, and each branch closes propositionally. The rung past omega's
+  -- linear ceiling — it proves `min a b * max a b = a * b`. Goals that
+  -- don't mention `min`/`max` skip the rung without paying for a tactic
+  -- elaboration.
+  if (stmt.find? fun e => e.isConstOf ``Min.min || e.isConstOf ``Max.max).isSome then
+    if let some pf ← tryTacticRung
+        "simp only [Nat.min_def, Nat.max_def]; split <;> simp_all [Nat.mul_comm]" stmt then
+      return .proved pf "split"
   if let some (pf, via) ← tryCompose known stmt then
     return .proved pf s!"composed: {via}"
   -- Mathlib rungs: the tactics parse only when the ambient environment

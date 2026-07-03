@@ -39,9 +39,10 @@ inductive Outcome where
   | refusedAtGate
 
 /-- Judge one conjecture: hunt for evidence and, on support, admit through
-the gate. The corpus grows only on `admitted`. -/
+the gate. The corpus grows only on `admitted`. One conjecture, one heartbeat
+budget — a long run's earlier judgments must not starve later ones. -/
 def judge (known : Array KnownLemma) (corpus : Corpus) (c : Conjecture) :
-    MetaM (Corpus × Outcome) := do
+    MetaM (Corpus × Outcome) := withCurrHeartbeats do
   match ← hunt known (corpus.facts.map (·.name)) c.stmt with
   | .refuted cex => return (corpus, .refuted cex)
   | .stillOpen => return (corpus, .stillOpen)

@@ -119,8 +119,9 @@ Six heuristics derive conjectures over `Nat` operations — identity,
 commutativity, idempotence, associativity, distributivity templates, plus
 `mixerH`, which reads the corpus and composes admitted facts. A
 counterexample search refutes by evaluation; a prover ladder (refl,
-grounding against the library, simp with the corpus, simp, omega) hunts for
-evidence; the gate alone admits. Expect:
+grounding against the library, simp with the corpus, simp, omega, an order
+case-split for `min`/`max` goals) hunts for evidence; the gate alone
+admits. Expect:
 
 ```
 28 admitted (every one kernel-gated), 37 refuted, 0 open,

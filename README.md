@@ -81,8 +81,9 @@ is refused at the gate.
 from templates and from the corpus (nothing hardcoded), a counterexample
 search refutes by evaluation, a prover ladder hunts for evidence (`refl`,
 grounding against the `Nat.*` library — direct and symmetric — then simp
-with the corpus itself, then the default simp set, then `omega`), and the
-gate alone admits. On the `Nat` algebra demo (7 operations, 5 law templates plus a
+with the corpus itself, then the default simp set, then `omega`, then an
+order case-split that unfolds `min`/`max` to `if`s and closes the branches
+propositionally), and the gate alone admits. On the `Nat` algebra demo (7 operations, 5 law templates plus a
 corpus-reading mixer):
 
 ```
@@ -127,8 +128,11 @@ facts admitted by simp with no alias found by the grounding pass. Five true-but-
 conjectures were honestly reported open (`min a b + max a b = a + b`,
 `a² - b² = (a-b)(a+b)`, …): the proposer already outruns the tactic ladder,
 which is the depth ceiling made visible. (The `omega` rung, added since,
-proves the linear four; the nonlinear `min a b * max a b = a * b` still
-stands open — the ceiling moves, honestly, one rung at a time.) Two proposals were merged as
+proves the linear four; the case-split rung, added after it — `min`/`max`
+unfold to `if`s, `split`, the branches close propositionally — now proves
+the nonlinear `min a b * max a b = a * b` too, CI-visibly in
+`BoothStub.lean`. The ceiling moves, honestly, one rung at a
+time.) Two proposals were merged as
 definitional duplicates of corpus facts. Zero falsehoods survived to the
 corpus; zero garbage evidence reached it (`refused = 0`).
 
@@ -326,6 +330,7 @@ lake env lean Audit.lean      # axiom audit (all headline theorems axiom-free)
 lake env lean Smoke.lean      # runtime gate smoke test (incl. adversarial round)
 lake env lean Disco.lean      # the discovery run
 lake env lean BoothStub.lean  # booth pipeline test, deterministic, no credentials
+lake env lean ChainStub.lean  # eq-chaining: an invented definition grounded via Eq.trans
 lake env lean BoothRun.lean   # live: discover, then 3 LLM conjecture rounds (needs aws CLI + Bedrock)
 lake env lean ReflectStub.lean # rule-gate test, deterministic, no credentials
 lake env lean ReflectRun.lean  # live: the LLM writes heuristic code, gated and fired
@@ -370,8 +375,11 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
 - [x] Transitive alias chaining: `tryKnownChain` composes a provable step
       with a known library `iff` via `Iff.trans` — closes
       `is_loop_def ↔ Dep {e} ↔ IsLoop` through `Matroid.singleton_dep`
-- [ ] Deeper chains (search the iff graph, not one step); alias chaining for
-      `=`-shaped grounding via `Eq.trans`
+- [x] Alias chaining for `=`-shaped grounding via `Eq.trans`
+      (`ChainStub.lean`: an invented definition, `twice n = 2 * n`, certified
+      equal to `n + n` through the bridge `Nat.two_mul` after the direct
+      ladder honestly fails — a first taste of the concept lifecycle)
+- [ ] Deeper chains (search the iff graph, not one step)
 - [x] Matroid discovery proper: implication/exclusion/duality/singleton
       template agents + LLM booth over the extracted predicates; 19
       certified facts incl. Whitney-duality statements
@@ -395,7 +403,10 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
       budget-by-worth, kill rule, births to depth ≥ 2 (`Eureka/Evolve.lean`)
 - [x] `omega` rung via generic by-tactic elaboration (`tryTacticRung`) —
       closes the linear opens from the live runs
-- [ ] Further prover rungs (induction templates, nonlinear arithmetic) —
-      `min a b * max a b = a * b` is the standing open
+- [x] Case-split rung (`min`/`max` to `if`s, `split`, close the branches) —
+      the standing nonlinear open `min a b * max a b = a * b` is closed,
+      CI-visibly (`BoothStub.lean`)
+- [ ] Further prover rungs (induction templates, general nonlinear
+      arithmetic)
 - [ ] Reflective modification of worth/policy *through a gate one level up*
       (today the gates and the worth function are fixed; see lean-keep)

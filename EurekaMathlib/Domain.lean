@@ -105,9 +105,13 @@ def implicationSweep (known : Array KnownLemma) (carrier : Name)
   for P in preds do
     for Q in preds do
       if P.name != Q.name && P.shape == Q.shape then
-        let c ← mkImplConjecture carrier P Q
-        let pretty := toString (← ppExpr c.stmt)
-        let (corpus', outcome) ← judge known corpus c
+        -- One candidate, one heartbeat budget: budgets are cumulative per
+        -- command, and a sweep must not starve its own tail.
+        let (corpus', outcome, pretty) ← withCurrHeartbeats do
+          let c ← mkImplConjecture carrier P Q
+          let pretty := toString (← ppExpr c.stmt)
+          let (corpus', outcome) ← judge known corpus c
+          pure (corpus', outcome, pretty)
         corpus := corpus'
         match outcome with
         | .admitted _ note =>
@@ -129,38 +133,43 @@ def aliasProbe (known : Array KnownLemma) (carrier : Name) (shape : PredShape)
   let mut corpus := corpus
   for P in preds do
     if P.shape == shape then
-      let c ← mkIffConjecture carrier shape invented P.name
-      let (corpus', outcome) ← judge known corpus c
-      corpus := corpus'
-      match outcome with
-      | .admitted _ note => return (corpus, some (P.name, note))
-      | .stillOpen =>
-        for tac in [s!"unfold {invented} {P.name}; tauto",
-                    s!"unfold {invented} {P.name}; aesop"] do
-          if let some pf ← tryTacticRung tac c.stmt then
+      -- One probe candidate, one heartbeat budget (see implicationSweep).
+      let (corpus', found) ← withCurrHeartbeats do
+        let c ← mkIffConjecture carrier shape invented P.name
+        let (corpus', outcome) ← judge known corpus c
+        match outcome with
+        | .admitted _ note => return (corpus', some (P.name, note))
+        | .stillOpen =>
+          for tac in [s!"unfold {invented} {P.name}; tauto",
+                      s!"unfold {invented} {P.name}; aesop"] do
+            if let some pf ← tryTacticRung tac c.stmt then
+              let nm ← freshName c.name
+              if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+                return ({ corpus' with facts := corpus'.facts.push f },
+                        some (P.name, s!"by {tac}"))
+          -- Transitive: compose a direct step with a known iff bridging to
+          -- the canonical side (e.g. is_loop_def ↔ Dep {e} ↔ IsLoop, via
+          -- Matroid.singleton_dep).
+          let subProve := fun (subStmt : Expr) => do
+            let midHead := (← attempt <| forallTelescope subStmt fun _ body =>
+              pure ((body.app2? ``Iff).bind (·.2.getAppFn.constName?))).join
+            let unfolds := match midHead with
+              | some h => s!"{invented} {h}"
+              | none => s!"{invented}"
+            for tac in [s!"unfold {unfolds}; tauto", s!"unfold {unfolds}; aesop"] do
+              if let some pf ← tryTacticRung tac subStmt then
+                return some pf
+            return (none : Option Expr)
+          if let some (pf, bridge) ← tryKnownChain known c.stmt subProve then
             let nm ← freshName c.name
             if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
-              corpus := { corpus with facts := corpus.facts.push f }
-              return (corpus, some (P.name, s!"by {tac}"))
-        -- Transitive: compose a direct step with a known iff bridging to
-        -- the canonical side (e.g. is_loop_def ↔ Dep {e} ↔ IsLoop, via
-        -- Matroid.singleton_dep).
-        let subProve := fun (subStmt : Expr) => do
-          let midHead := (← attempt <| forallTelescope subStmt fun _ body =>
-            pure ((body.app2? ``Iff).bind (·.2.getAppFn.constName?))).join
-          let unfolds := match midHead with
-            | some h => s!"{invented} {h}"
-            | none => s!"{invented}"
-          for tac in [s!"unfold {unfolds}; tauto", s!"unfold {unfolds}; aesop"] do
-            if let some pf ← tryTacticRung tac subStmt then
-              return some pf
-          return (none : Option Expr)
-        if let some (pf, bridge) ← tryKnownChain known c.stmt subProve then
-          let nm ← freshName c.name
-          if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
-            corpus := { corpus with facts := corpus.facts.push f }
-            return (corpus, some (P.name, s!"chained via {bridge}"))
-      | _ => pure ()
+              return ({ corpus' with facts := corpus'.facts.push f },
+                      some (P.name, s!"chained via {bridge}"))
+          return (corpus', none)
+        | _ => return (corpus', none)
+      corpus := corpus'
+      if let some g := found then
+        return (corpus, some g)
   return (corpus, none)
 
 end Runtime
