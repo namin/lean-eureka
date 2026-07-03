@@ -320,10 +320,31 @@ the genuine frontier, and their shape is informative: six are the
 witness pool provably cannot touch them — and the rest need witnesses with
 non-singleton circuits (a uniform matroid) or minimality reasoning beyond
 simp. A partial refuter is honest by construction: silence leaves a
-conjecture open; it never certifies truth. This is also the missing
-instrument behind the recurring starvation finding: with falsehoods dying
-as `refuted`, worth economics can price template agents honestly — wiring
-the refuter into the population engine's judge is the next step.
+conjecture open; it never certifies truth.
+
+## The starvation experiment (`MatroidEconomyRun.lean`)
+
+The refuter is wired into the engine (`judge` takes a `Refuter`, silent by
+default; `EvolveConfig.refuter`), which lets the follow-up question the
+three starvation observations could not ask finally be asked: same
+`exclusions` agent, same engine, refuter off and on.
+
+The numbers: control — 7 admitted, 0 refuted, 18 open. Experiment — 7
+admitted, **17 refuted** (each a gate-committed fact; corpus 24), 1 open.
+Worth trajectory in both runs, to the digit: 0.50 → 0.29 → 0.15 → 0.10,
+final 0.07. The refuter changed the *diagnosis* — the agent's failures
+are now provably false rather than possibly-hard — and changed nothing
+about the *verdict*: worth pays admissions only, so certified refutations
+are economically invisible. Starvation is a property of the worth
+function, not of missing refutation; repricing worth is exactly the
+reflective-modification question one gate up (the roadmap's last item,
+lean-keep's axis).
+
+The run also isolates a second mechanism: 75 merged = 3 × 25 verbatim
+re-proposals — `perAgentCap` truncates the *same* deterministic proposal
+prefix every generation, so 19 of the 44 pairs are never judged at any
+budget. The baseline finding's "provable conjectures still queued" is
+cap-shaped as well as economics-shaped.
 
 ## Keynote axes
 
@@ -362,6 +383,7 @@ lake env lean EvolveStub.lean  # population engine: worth, budget, kill rule, de
 lake env lean EvolveRun.lean   # live: the LLM as one agent in the population
 lake build EurekaMathlib && lake env lean MatroidStub.lean  # matroid microcosm (Mathlib)
 lake env lean MatroidRefuteStub.lean  # the refuter: 32 of 42 opens die, gate-certified
+lake env lean MatroidEconomyRun.lean  # starvation experiment: refuter on vs off, same worth
 ```
 
 Toolchain: `leanprover/lean4:v4.30.0`. The Lake package declares a Mathlib
@@ -419,9 +441,13 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
       instantiated at concrete matroids, the negation proved by simp, every
       refutation kernel-gated — 32 of the matroid sweep's 42 opens die, 10
       survive honestly (`MatroidRefuteStub.lean`)
+- [x] Refuter wired into the population engine (`judge` takes a `Refuter`;
+      `EvolveConfig.refuter`) — the starvation experiment: identical worth
+      trajectories with 18 open vs 17 certified-refuted + 1 open;
+      refutations are economically invisible to an admissions-only worth
+      (`MatroidEconomyRun.lean`)
 - [ ] Richer refuter witnesses (a uniform matroid for non-singleton
-      circuits; the `→ IsRkFinite` family needs infinite ones) and the
-      refuter wired into the population engine's judge
+      circuits; the `→ IsRkFinite` family needs infinite ones)
 - [x] LLM-proposed facts through the gate (booth stage one; Bedrock client
       ported from lean-sage)
 - [x] LLM-proposed *heuristic code*, elaborated, policy-checked, compiled,

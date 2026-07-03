@@ -102,6 +102,8 @@ structure EvolveConfig where
   minTrials : Nat := 10
   killThreshold : Float := 0.05
   knownPrefixes : List Name := [`Nat]
+  /-- Domain refuter passed to `judge`; silent by default. -/
+  refuter : Refuter := fun _ => pure none
 
 /-- Run the population. Every fact still enters through `commitFact`; every
 birth still enters through the rule gate. Worth only decides *attention*. -/
@@ -165,7 +167,7 @@ def evolve (initial : List Agent) (cfg : EvolveConfig := {})
           s := { s with judged := s.judged + 1 }
           attempted := attempted.push (c.stmt, c.name)
           let pretty := toString (← ppExpr c.stmt)
-          let (corpus', outcome) ← judge known corpus c
+          let (corpus', outcome) ← judge known corpus c cfg.refuter
           corpus := corpus'
           match outcome with
           | .refuted cex =>

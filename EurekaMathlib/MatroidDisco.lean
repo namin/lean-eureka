@@ -91,6 +91,66 @@ def singletonAgent (preds : Array PredInfo) : Agent where
               stmt, origin := `singleton })
     return out
 
+/-!
+## The refuter kit
+
+Concrete witnesses for `refuteByInstances`, as named definitions so the
+refuter's simp call can unfold them by name (call sites `open
+Eureka.Runtime`, which is how the unqualified names in the simp vocabulary
+resolve). The pool is small and pointed: `uniqueBaseOn {0} {0,1}` has a
+coloop and a loop in one matroid. Call sites should
+`set_option linter.unusedSimpArgs false` — the vocabulary is a union over
+all instances, so per-goal unused entries are by design.
+-/
+
+def mFree : Matroid ℕ := Matroid.freeOn {0}
+def mLoopy : Matroid ℕ := Matroid.loopyOn {0}
+def mUB : Matroid ℕ := Matroid.uniqueBaseOn {0} {0, 1}
+def mEmpty : Matroid ℕ := Matroid.emptyOn ℕ
+def sEmpty : Set ℕ := ∅
+def s0 : Set ℕ := {0}
+def s1 : Set ℕ := {1}
+def s01 : Set ℕ := {0, 1}
+
+/-- `uniqueBaseOn`'s base characterization is conditional on `I ⊆ E`;
+discharge it once, at our instance, so simp can use it unconditionally. -/
+theorem ubOn_isBase_iff {B : Set ℕ} :
+    (Matroid.uniqueBaseOn ({0} : Set ℕ) {0, 1}).IsBase B ↔ B = {0} :=
+  Matroid.uniqueBaseOn_isBase_iff (by simp)
+
+/-- The refuter's simp vocabulary: unfold the witnesses, characterize the
+predicates at the concrete constructions, reduce duality and singletons. -/
+def matroidRefuterSimpArgs : Array String := #[
+  "mFree", "mLoopy", "mUB", "mEmpty", "sEmpty", "s0", "s1", "s01",
+  "ubOn_isBase_iff",
+  "Matroid.dep_iff", "Matroid.coindep_def", "Matroid.isCocircuit_def",
+  "Matroid.loopyOn_isLoop_iff", "Matroid.uniqueBaseOn_isLoop_iff",
+  "← Matroid.singleton_dep",
+  "Matroid.isColoop_iff_forall_mem_isBase",
+  "Matroid.empty_not_isCircuit", "Matroid.singleton_isCircuit",
+  "not_imp"]
+
+/-- The witness pool: set-shaped and element-shaped instances; shape
+mismatches fail `refuteByInstances`' type check and are skipped. -/
+def matroidInstances : Array (Expr × Expr × String) := #[
+  (mkConst ``mFree,  mkConst ``sEmpty, "M := freeOn {0}, X := ∅"),
+  (mkConst ``mFree,  mkConst ``s0,     "M := freeOn {0}, X := {0}"),
+  (mkConst ``mLoopy, mkConst ``sEmpty, "M := loopyOn {0}, X := ∅"),
+  (mkConst ``mLoopy, mkConst ``s0,     "M := loopyOn {0}, X := {0}"),
+  (mkConst ``mUB,    mkConst ``sEmpty, "M := uniqueBaseOn {0} {0,1}, X := ∅"),
+  (mkConst ``mUB,    mkConst ``s0,     "M := uniqueBaseOn {0} {0,1}, X := {0}"),
+  (mkConst ``mUB,    mkConst ``s1,     "M := uniqueBaseOn {0} {0,1}, X := {1}"),
+  (mkConst ``mUB,    mkConst ``s01,    "M := uniqueBaseOn {0} {0,1}, X := {0,1}"),
+  (mkConst ``mFree,  mkNatLit 0,       "M := freeOn {0}, e := 0"),
+  (mkConst ``mLoopy, mkNatLit 0,       "M := loopyOn {0}, e := 0"),
+  (mkConst ``mUB,    mkNatLit 0,       "M := uniqueBaseOn {0} {0,1}, e := 0"),
+  (mkConst ``mUB,    mkNatLit 1,       "M := uniqueBaseOn {0} {0,1}, e := 1"),
+  (mkConst ``mEmpty, mkNatLit 0,       "M := emptyOn ℕ, e := 0")]
+
+/-- The assembled matroid refuter, ready for `judge` / `EvolveConfig`. -/
+def matroidRefuter : Refuter :=
+  refuteByInstances matroidRefuterSimpArgs (mkConst ``Nat) matroidInstances
+
 /-- Booth prompt for the matroid domain. -/
 def renderMatroidPrompt (preds : Array PredInfo)
     (corpus : Corpus) (lastRound : Option BoothLog) (perRound : Nat) :

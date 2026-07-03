@@ -38,11 +38,30 @@ inductive Outcome where
   | stillOpen
   | refusedAtGate
 
-/-- Judge one conjecture: hunt for evidence and, on support, admit through
-the gate. The corpus grows only on `admitted`. One conjecture, one heartbeat
-budget — a long run's earlier judgments must not starve later ones. -/
-def judge (known : Array KnownLemma) (corpus : Corpus) (c : Conjecture) :
+/-- A domain refuter: given a conjecture statement, optionally return a
+kernel-checkable refutation — the negated instance, its proof, and a
+description of the witness. `refuteByInstances` (domain layer) produces
+these; the default refuter is silent, and silence never certifies truth. -/
+abbrev Refuter := Expr → MetaM (Option (Expr × Expr × String))
+
+/-- Judge one conjecture: refute if the domain can, else hunt for evidence
+and, on support, admit through the gate. A refutation is itself a fact —
+the negated instance — and enters the corpus through `commitFact` like any
+other: false conjectures die by the same evidence standard by which true
+ones live. The corpus grows on `admitted` and on certified refutation. One
+conjecture, one heartbeat budget — a long run's earlier judgments must not
+starve later ones. -/
+def judge (known : Array KnownLemma) (corpus : Corpus) (c : Conjecture)
+    (refuter : Refuter := fun _ => pure none) :
     MetaM (Corpus × Outcome) := withCurrHeartbeats do
+  if let some (negStmt, pf, witness) ← refuter c.stmt then
+    let nm ← freshName (c.name.appendAfter "_refuted")
+    match ← commitFact { name := nm, stmt := negStmt, proof := pf } with
+    | some f =>
+      return ({ corpus with facts := corpus.facts.push f }, .refuted witness)
+    | none =>
+      -- the alleged refutation failed the gate: fall through to the hunt
+      pure ()
   match ← hunt known (corpus.facts.map (·.name)) c.stmt with
   | .refuted cex => return (corpus, .refuted cex)
   | .stillOpen => return (corpus, .stillOpen)
