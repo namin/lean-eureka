@@ -301,6 +301,30 @@ enumeration prefix. In refuter-free domains, kill rules trade completeness
 for attention — the sweep exists because, for a completeness question,
 economics are the wrong tool.
 
+## The refuter (`MatroidRefuteStub.lean`)
+
+The missing half of the honest asymmetry, first slice. `refuteByInstances`
+(domain layer) instantiates a conjecture at concrete witnesses —
+`freeOn {0}`, `loopyOn {0}`, `uniqueBaseOn {0} {0,1}` (a coloop and a loop
+in one matroid), `emptyOn` — and proves the *negation* of the instance by
+simp with the constructions' characterization lemmas. A refutation is
+therefore a proof, and the stub commits every one through the gate: false
+conjectures die by the same evidence standard by which true facts live —
+unlike the `Nat` evaluator refuter, whose counterexamples are evaluations,
+not kernel-checked facts.
+
+On the implication sweep whose 42 opens `MatroidStub` reports, the refuter
+kills 32, each gate-certified with its witness named. The 10 survivors are
+the genuine frontier, and their shape is informative: six are the
+`→ IsRkFinite` family, false only on *infinite* matroids — a finite
+witness pool provably cannot touch them — and the rest need witnesses with
+non-singleton circuits (a uniform matroid) or minimality reasoning beyond
+simp. A partial refuter is honest by construction: silence leaves a
+conjecture open; it never certifies truth. This is also the missing
+instrument behind the recurring starvation finding: with falsehoods dying
+as `refuted`, worth economics can price template agents honestly — wiring
+the refuter into the population engine's judge is the next step.
+
 ## Keynote axes
 
 | Axis | Instance |
@@ -337,6 +361,7 @@ lake env lean ReflectRun.lean  # live: the LLM writes heuristic code, gated and 
 lake env lean EvolveStub.lean  # population engine: worth, budget, kill rule, depth-2 births
 lake env lean EvolveRun.lean   # live: the LLM as one agent in the population
 lake build EurekaMathlib && lake env lean MatroidStub.lean  # matroid microcosm (Mathlib)
+lake env lean MatroidRefuteStub.lean  # the refuter: 32 of 42 opens die, gate-certified
 ```
 
 Toolchain: `leanprover/lean4:v4.30.0`. The Lake package declares a Mathlib
@@ -390,9 +415,13 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
 - [ ] Concept invention: proposed *definitions* as a proposal kind, with
       their own grounding lifecycle (the remaining frontier vs. the
       formal-disco baseline)
-- [ ] A refuter for predicate domains (finite matroid enumeration /
-      `Decidable` instances) so false template conjectures die as `refuted`
-      rather than lingering `open`
+- [x] A refuter for predicate domains, first slice: conjectures
+      instantiated at concrete matroids, the negation proved by simp, every
+      refutation kernel-gated — 32 of the matroid sweep's 42 opens die, 10
+      survive honestly (`MatroidRefuteStub.lean`)
+- [ ] Richer refuter witnesses (a uniform matroid for non-singleton
+      circuits; the `→ IsRkFinite` family needs infinite ones) and the
+      refuter wired into the population engine's judge
 - [x] LLM-proposed facts through the gate (booth stage one; Bedrock client
       ported from lean-sage)
 - [x] LLM-proposed *heuristic code*, elaborated, policy-checked, compiled,

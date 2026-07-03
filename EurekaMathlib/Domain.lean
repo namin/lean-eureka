@@ -122,6 +122,33 @@ def implicationSweep (known : Array KnownLemma) (carrier : Name)
         | .refusedAtGate => IO.println s!"  ! {pretty} — REFUSED at gate"
   return (corpus, admitted, opens)
 
+/-- A refuter for predicate domains: instantiate a conjecture
+`∀ (α : Type) (M : Carrier α) (X : _), body` at concrete instances and try
+to prove the *negation* of the instance by simp with a domain-supplied
+argument list. Unlike the `Nat` evaluator refuter, a refutation here
+carries a kernel-checkable proof of the negated instance — the caller can
+pass it through the gate. Instances whose value doesn't fit the
+conjecture's shape (set vs element) fail the type check and are skipped;
+a refuter this partial is honest by construction: silence leaves the
+conjecture open, it never certifies truth. -/
+def refuteByInstances (simpArgs : Array String) (carrierVal : Expr)
+    (instances : Array (Expr × Expr × String)) (stmt : Expr) :
+    MetaM (Option (Expr × Expr × String)) := do
+  let tac := s!"simp [{String.intercalate ", " simpArgs.toList}]"
+  -- Bounded: open exactly `α M X` and keep the conjecture's implication
+  -- arrow inside the body (a plain telescope would take the hypothesis of
+  -- `P → Q` as a fourth binder).
+  let r ← attempt <| forallBoundedTelescope stmt (some 3) fun xs body => do
+    if xs.size != 3 then return none
+    for (m, x, desc) in instances do
+      let inst := body.replaceFVars xs #[carrierVal, m, x]
+      unless (← attempt (check inst)).isSome do continue
+      let negStmt := mkApp (mkConst ``Not) inst
+      if let some pf ← tryTacticRung tac negStmt then
+        return some (negStmt, pf, desc)
+    return none
+  return r.join
+
 /-- Probe an invented predicate for a certified alias among same-shape
 canonical predicates: the generic hunt first (defeq, known-iff lemmas direct
 and symmetric, simp, aesop), then a targeted rung that unfolds both
