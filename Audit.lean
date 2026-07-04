@@ -20,3 +20,15 @@ time when this file is elaborated).
 
 /-- info: 'Eureka.UngatedCollapse.gated_immune' does not depend on any axioms -/
 #guard_msgs in #print axioms Eureka.UngatedCollapse.gated_immune
+
+/-- info: 'Eureka.concept_birth_conservative' does not depend on any axioms -/
+#guard_msgs in #print axioms Eureka.concept_birth_conservative
+
+/-- info: 'Eureka.concept_birth_sound' does not depend on any axioms -/
+#guard_msgs in #print axioms Eureka.concept_birth_sound
+
+/-- info: 'Eureka.defGated_sound' does not depend on any axioms -/
+#guard_msgs in #print axioms Eureka.defGated_sound
+
+/-- info: 'Eureka.defGated_concepts_invariant' does not depend on any axioms -/
+#guard_msgs in #print axioms Eureka.defGated_concepts_invariant

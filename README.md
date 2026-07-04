@@ -434,9 +434,18 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
 - [x] Composition rung: bounded backward chaining with named-lemma
       certificates — 8 kernel-certified matroid facts unmatched by the
       grounding pass (`MatroidFrontierRun.lean`)
-- [ ] Concept invention: proposed *definitions* as a proposal kind, with
-      their own grounding lifecycle (the remaining frontier vs. the
-      formal-disco baseline)
+- [x] Concept invention, slice one (DESIGN_INVENT.md): definitions as a gated proposal
+      kind — model extension (`concept_birth_conservative/_sound`,
+      `defGated_concepts_invariant`, all axiom-free), birth gate into a
+      reserved audited namespace (`commitConcept`/`auditInvented`),
+      certificate verdicts (alias/degenerate/spec/genl/novel-so-far),
+      merge as tombstone + bridge, re-probe triggers and budgeted sweep,
+      conjunction/negated-conjunct operators (`Eureka/Concepts.lean`;
+      acceptance tests 2–6 in `InventStub.lean`, the baseline's synonym
+      tower merged at birth in `MatroidInventStub.lean`)
+- [ ] Concept invention, slice two: compounding operators (invented
+      concepts re-enter the operator pool), the yield-curve run at
+      generative depth, LLM booth stage for concept proposals
 - [x] A refuter for predicate domains, first slice: conjectures
       instantiated at concrete matroids, the negation proved by simp, every
       refutation kernel-gated — 32 of the matroid sweep's 42 opens die, 10
