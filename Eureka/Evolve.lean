@@ -119,15 +119,60 @@ structure EvolveConfig where
   attempt, metered by `llmProofBudget` calls per generation. -/
   proofCall : Option (String → IO (Except String String)) := none
   llmProofBudget : Nat := 0
+  /-- The in-loop sweep (DESIGN_INVENT D3-ii, wired by DESIGN_RECORD R4):
+  per-generation re-probe budget over unmerged pairs, cursor carried
+  across generations — the standing-obligation tail trigger (i) cannot
+  reach. 0 = off. -/
+  sweepBudget : Nat := 0
 
 /-- The population run's full result: the corpus, the event ledger (the
-economy's instrument), the concept pool, and the final population. -/
+economy's instrument), the concept pool, the final population, and the
+open set — the standing worklist (and the benchmark generator's
+output, DESIGN_RECORD R2). -/
 structure EvolveResult where
   corpus : Corpus
   ledger : Ledger
   pool : ConceptPool
   population : Array Agent
   dead : Array Name
+  opens : Array (Conjecture × Name × Nat) := #[]
+
+/-- Merges pay through one path (DESIGN_RECORD R3): delayed-alias credit
+to the younger concept's inventor, attracted credit to the elder's when
+distinct. Used by trigger (i) and the sweep alike. -/
+private def creditMerges (pool : ConceptPool) (ledger : Ledger)
+    (merges : Array (Name × Name)) (how : String) : MetaM Ledger := do
+  let mut ledger := ledger
+  for (younger, elder) in merges do
+    let origin := ((pool.find? younger).map (·.origin)).getD .anonymous
+    ledger := ledger.record origin (.conceptAlias elder true)
+    if let some ec := pool.find? elder then
+      if ec.origin != origin then
+        ledger := ledger.record ec.origin (.conceptAttracted elder)
+    IO.println s!"  ≡ {how} merged {younger} into {elder} \
+(delayed credit to {origin})"
+  return ledger
+
+/-- The one credit path for an admitted fact (R3): mentioned concepts pay
+their inventors; a fact linking two live inventions fires re-probe
+trigger (i); trigger merges pay through `creditMerges`. -/
+private def creditAdmission (probeCtx : Option ProbeCtx)
+    (pool : ConceptPool) (corpus : Corpus) (ledger : Ledger) (f : Fact) :
+    MetaM (ConceptPool × Corpus × Ledger) := do
+  let used := f.stmt.getUsedConstants
+  let mentioned := pool.concepts.filter fun cc => used.contains cc.name
+  let mut ledger := ledger
+  let mut pool := pool
+  let mut corpus := corpus
+  for cc in mentioned do
+    ledger := ledger.record cc.origin (.inventedEdge cc.name)
+  if mentioned.size ≥ 2 then
+    if let some ctx := probeCtx then
+      let (pool', corpus', merges) ← reprobeOnFact ctx pool corpus f
+      pool := pool'
+      corpus := corpus'
+      ledger ← creditMerges pool ledger merges "re-probe"
+  return (pool, corpus, ledger)
 
 /-- Run the population. Every fact still enters through `commitFact`,
 every heuristic birth through the rule gate, every concept through the
@@ -145,6 +190,7 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
   -- The open set (P1): conjectures judged open, kept for escalation —
   -- (conjecture, proposer, escalation tries).
   let mut opens : Array (Conjecture × Name × Nat) := #[]
+  let mut sweepCursor := 0
   for gen in [1 : cfg.generations + 1] do
     IO.println ""
     IO.println s!"── generation {gen} ──"
@@ -261,28 +307,11 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
           | .admitted f note =>
             ledger := ledger.record agent.name (.factAdmitted (tierOfRung note))
             IO.println s!"  ✓ [{agent.name}] {pretty} — admitted ({note})"
-            -- Facts in invented vocabulary pay the concepts' inventors;
-            -- a fact linking two inventions re-probes the pair (D3
-            -- trigger (i)) — a merge is delayed credit to the inventor.
-            let used := f.stmt.getUsedConstants
-            let mentioned := pool.concepts.filter fun cc => used.contains cc.name
-            for cc in mentioned do
-              ledger := ledger.record cc.origin (.inventedEdge cc.name)
-            if mentioned.size ≥ 2 then
-              if let some ctx := cfg.probeCtx then
-                let (pool', corpus'', merges) ←
-                  reprobeOnFact ctx pool corpus f
-                pool := pool'
-                corpus := corpus''
-                for (younger, elder) in merges do
-                  let origin := ((pool.find? younger).map (·.origin)).getD .anonymous
-                  ledger := ledger.record origin (.conceptAlias elder true)
-                  -- The elder endpoint attracted a bridge (P4).
-                  if let some ec := pool.find? elder then
-                    if ec.origin != origin then
-                      ledger := ledger.record ec.origin (.conceptAttracted elder)
-                  IO.println s!"  ≡ re-probe merged {younger} into {elder} \
-(delayed credit to {origin})"
+            let (pool', corpus'', ledger') ←
+              creditAdmission cfg.probeCtx pool corpus ledger f
+            pool := pool'
+            corpus := corpus''
+            ledger := ledger'
           | .refusedAtGate =>
             ledger := ledger.record agent.name .refusedAtGate
             IO.println s!"  ! [{agent.name}] {pretty} — evidence REFUSED by the gate"
@@ -328,23 +357,11 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
             resolvedStmts := resolvedStmts.push c.stmt
             IO.println s!"  ⇧ [{proposer}] {toString (← ppExpr c.stmt)} — \
 admitted ({note})"
-            let used := f.stmt.getUsedConstants
-            let mentioned := pool.concepts.filter fun cc => used.contains cc.name
-            for cc in mentioned do
-              ledger := ledger.record cc.origin (.inventedEdge cc.name)
-            if mentioned.size ≥ 2 then
-              if let some ctx := cfg.probeCtx then
-                let (pool', corpus'', merges) ← reprobeOnFact ctx pool corpus f
-                pool := pool'
-                corpus := corpus''
-                for (younger, elder) in merges do
-                  let origin := ((pool.find? younger).map (·.origin)).getD .anonymous
-                  ledger := ledger.record origin (.conceptAlias elder true)
-                  if let some ec := pool.find? elder then
-                    if ec.origin != origin then
-                      ledger := ledger.record ec.origin (.conceptAttracted elder)
-                  IO.println s!"  ≡ re-probe merged {younger} into {elder} \
-(delayed credit to {origin})"
+            let (pool', corpus'', ledger') ←
+              creditAdmission cfg.probeCtx pool corpus ledger f
+            pool := pool'
+            corpus := corpus''
+            ledger := ledger'
           | .refuted cex =>
             ledger := ledger.record proposer .factRefuted
             resolvedStmts := resolvedStmts.push c.stmt
@@ -359,6 +376,15 @@ still open after escalation"
           if resolvedStmts.any (· == c.stmt) then none
           else if attemptedStmts.any (· == c.stmt) then some (c, pr, t + 1)
           else some (c, pr, t)
+    -- The in-loop sweep (R4): the identity obligation's tail.
+    if cfg.sweepBudget > 0 then
+      if let some ctx := cfg.probeCtx then
+        let (pool', corpus', merges, cursor') ← sweepReprobe ctx pool corpus
+          cfg.canonical cfg.sweepBudget sweepCursor
+        pool := pool'
+        corpus := corpus'
+        sweepCursor := cursor'
+        ledger ← creditMerges pool ledger merges "sweep"
     -- kill sweep
     let pop' := population
     let children' := fun (a : Name) =>
@@ -383,7 +409,7 @@ still open after escalation"
     IO.println s!"  {a.name}{mark}: worth \
 {fmtW (ledger.worth cfg.prices childrenF a.name)} — \
 {(ledger.counts a.name).describe}{from_}"
-  return { corpus, ledger, pool, population,
+  return { corpus, ledger, pool, population, opens,
            dead := population.filterMap fun a =>
              if dead.contains a.name then some a.name else none }
 

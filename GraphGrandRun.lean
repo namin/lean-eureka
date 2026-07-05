@@ -79,7 +79,8 @@ In bodies use only the Mathlib graph API (e.g. `G.Adj`, `Gᶜ`, \
 `G.IsClique`, `G.IsIndepSet`, `G.neighborSet`, `G.degree` needs \
 instances — avoid it) and set operations (`∈`, `⊆`, `∩`, `∪`, `\\`, \
 `{v}`, `Set.univ`)"
-  let call := Eureka.LLM.invoke Eureka.LLM.defaultConfig
+  let call ← Eureka.LLM.withTranscript "transcripts/graph-grand.jsonl" "graph-grand"
+    (Eureka.LLM.invoke Eureka.LLM.defaultConfig)
   let booth := conceptBoothAgent call shapes domain canonical
   let agents : List Agent :=
     [complementerAgent canonical, graphCompounderAgent,

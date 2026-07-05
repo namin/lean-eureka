@@ -112,5 +112,26 @@ def cannedCall (responses : Array String) (counter : IO.Ref Nat)
   unless (← counter3.get) ≥ 1 do
     throwError "the move generator should have been consulted"
   IO.println "  ✓ cheap moves fail; the suggested move closes it; kernel-gated"
+
+  IO.println ""
+  IO.println "━━ transcripts (DESIGN_RECORD R1) ━━"
+  let path : System.FilePath := "transcripts/prove-stub-test.jsonl"
+  if ← path.pathExists then IO.FS.removeFile path
+  let counter4 ← IO.mkRef 0
+  let prompts4 ← IO.mkRef (#[] : Array String)
+  let tcall ← Eureka.LLM.withTranscript path "prove-stub"
+    (cannedCall #["alpha", "beta"] counter4 prompts4)
+  let _ ← tcall "first prompt"
+  let _ ← tcall "second prompt"
+  let lines := ((← IO.FS.readFile path).trimAscii.toString.splitOn "\n")
+  unless lines.length == 2 do
+    throwError "expected 2 transcript entries, got {lines.length}"
+  let .ok j0 := Lean.Json.parse lines[0]! | throwError "entry 0 unparseable"
+  unless (j0.getObjVal? "prompt").toOption == some (.str "first prompt") do
+    throwError "entry 0 prompt wrong"
+  unless (j0.getObjVal? "response").toOption == some (.str "alpha") do
+    throwError "entry 0 response wrong"
+  IO.FS.removeFile path
+  IO.println "  ✓ two calls, two JSONL entries, in order; parses back"
   IO.println ""
   IO.println "proof search behaves as specified"

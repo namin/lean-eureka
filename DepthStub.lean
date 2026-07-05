@@ -161,5 +161,55 @@ def stubbornH (ctr : IO.Ref Nat) : Agent where
 tier — got {cs.admittedDeep}"
   IO.println s!"  ✓ {cs.admittedDeep} escalated admissions from \
 {cs.opens} opens; proposer paid at tier"
+
+/-! The in-loop sweep (DESIGN_RECORD R4, test 4): a pair whose enabling
+fact mentions *neither* concept — trigger (i) is structurally blind to
+it; only the sweep can merge it. -/
+
+def swOd (n : Nat) : Nat := n + n + n
+
+def swOd_eq : ∀ n : Nat, swOd n = 3 * n := fun n => by unfold swOd; omega
+
+def swInventor : Agent where
+  name := `sw_inventor
+  propose := fun _ => do
+    if (← getEnv).contains (inventedNs ++ `swA) then return #[]
+    let mkPred := fun (mkBody : Expr → MetaM Expr) => do
+      let value ← withLocalDeclD `n natTy fun n => do
+        mkLambdaFVars #[n] (← mkBody n)
+      pure (value, Expr.forallE `n natTy (.sort .zero) .default)
+    let (vA, tA) ← mkPred fun n => do
+      mkEq (← mkAppM ``swOd #[n]) (mkNatLit 12)
+    let (vB, tB) ← mkPred fun n => do
+      mkEq (← mkAppM ``HMul.hMul #[mkNatLit 3, n]) (mkNatLit 12)
+    return #[.concept { name := `swA, type := tA, value := vA },
+             .concept { name := `swB, type := tB, value := vB }]
+
+#eval show MetaM Unit from do
+  IO.println ""
+  IO.println "━━ test 4 (R4): the sweep catches what trigger (i) cannot ━━"
+  let known ← collectKnown [`Nat]
+  let cfg : EvolveConfig :=
+    { generations := 1, judgeBudget := 5, probeCtx := some { known } }
+  let r1 ← evolveWith [swInventor] cfg
+  unless r1.pool.isLive (inventedNs ++ `swA) &&
+      r1.pool.isLive (inventedNs ++ `swB) do
+    throwError "the pair should be unmergeable at birth"
+  -- The unlock mentions neither invented concept: trigger (i) can never
+  -- fire on it. Only the sweep re-probes the pair.
+  let ci ← getConstInfo ``swOd_eq
+  let some unlock ← commitFact
+      { name := ← freshName `swOd_eq, stmt := ci.type, proof := ci.value! }
+    | throwError "the gate refused the unlock"
+  let corpus := { r1.corpus with facts := r1.corpus.facts.push unlock }
+  let r2 ← evolveWith [swInventor] { cfg with sweepBudget := 8 }
+    corpus r1.pool
+  unless !(r2.pool.isLive (inventedNs ++ `swB)) do
+    throwError "the sweep should have merged swB into swA"
+  unless (r2.ledger.counts `sw_inventor).conceptsAliased == 1 do
+    throwError "the sweep merge should pay delayed credit through the \
+shared path"
+  IO.println "  ✓ enabling fact mentions neither concept; the sweep \
+merges the pair and pays through the shared credit path"
   IO.println ""
   IO.println "depth economy behaves as specified"

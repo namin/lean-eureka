@@ -50,7 +50,8 @@ Mathlib matroid API (e.g. `M.E`, `M.Indep`, `M.Dep`, `M.IsBase`, \
 `M.IsCircuit`, `M.IsLoop`, `M.Spanning`, `M✶`, `M.closure`) and set \
 operations (`∈`, `⊆`, `∩`, `∪`, `\\`, `{e}`, `Set.Finite`)"
   let (pool, corpus, stats) ← conceptBooth
-    (Eureka.LLM.invoke Eureka.LLM.defaultConfig) ctx canonical
+    (← Eureka.LLM.withTranscript "transcripts/matroid-invent.jsonl" "matroid-invent"
+      (Eureka.LLM.invoke Eureka.LLM.defaultConfig)) ctx canonical
     { rounds := 2, perRound := 4, shapes
       render := renderConceptPrompt domain shapes }
   IO.println ""

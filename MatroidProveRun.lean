@@ -94,7 +94,8 @@ and_left_comm]"]
   let deep : ProbeCtx :=
     { known := deepKnown, extraRungs := cheapRungs ++ #["aesop"],
       composeDepth := 3 }
-  let call := Eureka.LLM.invoke Eureka.LLM.defaultConfig
+  let call ← Eureka.LLM.withTranscript "transcripts/matroid-prove.jsonl" "matroid-prove"
+    (Eureka.LLM.invoke Eureka.LLM.defaultConfig)
   let refuter : Refuter := fun stmt => do
     let usedInv := (stmt.getUsedConstants.filter
       (inventedNs.isPrefixOf ·)).map toString

@@ -65,8 +65,9 @@ independence `M.Indep : Set α → Prop`, dual `M✶`). In bodies use only the \
 Mathlib matroid API (e.g. `M.E`, `M.Indep`, `M.Dep`, `M.IsBase`, \
 `M.IsCircuit`, `M.IsLoop`, `M.Spanning`, `M✶`, `M.closure`) and set \
 operations (`∈`, `⊆`, `∩`, `∪`, `\\`, `{e}`, `Set.Finite`)"
-  let booth := conceptBoothAgent
-    (Eureka.LLM.invoke Eureka.LLM.defaultConfig) shapes domain canonical
+  let call ← Eureka.LLM.withTranscript "transcripts/matroid-grand.jsonl" "matroid-grand"
+    (Eureka.LLM.invoke Eureka.LLM.defaultConfig)
+  let booth := conceptBoothAgent call shapes domain canonical
   let agents : List Agent :=
     [implicationsAgent carrier preds, exclusionsAgent carrier preds,
      dualityAgent preds, singletonAgent preds,

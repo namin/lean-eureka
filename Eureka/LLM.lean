@@ -51,6 +51,29 @@ private def extractText (j : Json) : Except String String := do
   else
     .ok joined
 
+/-- Wrap any transport with a JSONL transcript sink (DESIGN_RECORD R1):
+one line per call — `{tag, i, prompt, response | error}` — appended in
+call order. Index-ordered, no timestamps (determinism rules). The
+record the live runs were losing. -/
+def withTranscript (path : System.FilePath) (tag : String)
+    (call : String → IO (Except String String)) :
+    IO (String → IO (Except String String)) := do
+  let counter ← IO.mkRef 0
+  return fun prompt => do
+    let r ← call prompt
+    let i ← counter.get
+    counter.set (i + 1)
+    let payload := match r with
+      | .ok t => ("response", Json.str t)
+      | .error e => ("error", Json.str e)
+    let entry := Json.mkObj
+      [("tag", Json.str tag), ("i", toJson i),
+       ("prompt", Json.str prompt), payload]
+    if let some d := path.parent then
+      IO.FS.createDirAll d
+    IO.FS.withFile path .append fun h => h.putStrLn entry.compress
+    return r
+
 /-- One Bedrock call: the model's text, or an error describing what went
 wrong (CLI failure, JSON parse, unexpected response shape). -/
 def invoke (cfg : Config) (prompt : String) : IO (Except String String) := do
