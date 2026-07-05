@@ -119,8 +119,18 @@ cannot see (`Indep ∧ IsBase ≡ IsBase` needs one directional ladder plus
 a measured cost of the economy rather than a silent one.
 
 Facts phase (survivor × canonical implications, both directions,
-`probeProve` for proof and the invented-aware refuter for
-counterexamples): **[PENDING — run in progress]**
+`probeProve` for proof and the witness-kit refuter for
+counterexamples): **934 implications judged — 87 admitted (9%),
+569 refuted (61%), 278 open (30%)**; every refutation is a
+kernel-checked negated instance in the corpus, 667 certified facts in
+total. The refuted-rate column is the boolean survivors' verdict: most
+of what unmergeable novelty generates is certified noise. Two
+mechanical lessons surfaced en route, both now in the library: `judge`'s
+hunt sees invented constants as opaque (the concept-aware
+`judgeConceptFact` uses the expansion-aware prover), and simp cannot
+unfold gate-declared definitions — no equation lemmas exist for raw
+`addDecl` defs — so the refuter takes an `unfold` prefix for invented
+vocabulary.
 
 ## Baseline comparison
 

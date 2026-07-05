@@ -526,6 +526,27 @@ def sweepReprobe (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
         merges := merges.push (c.name, t.name)
   return (pool, corpus, merges, k)
 
+/-- Judge a conjecture phrased in invented vocabulary: `judge`'s hunt sees
+invented constants as opaque, so the prover here is `probeProve` (folded +
+delta-expanded forms) and the proof commits against the folded statement.
+The refuter contract is `judge`'s: a refutation is a kernel fact — the
+negated instance — admitted through the gate; the caller supplies a
+refuter that can see through the vocabulary (e.g. `unfold`-prefixed). -/
+def judgeConceptFact (ctx : ProbeCtx) (corpus : Corpus) (c : Conjecture)
+    (refuter : Refuter := fun _ => pure none) :
+    MetaM (Corpus × Outcome) := withCurrHeartbeats do
+  if let some (negStmt, pf, witness) ← refuter c.stmt then
+    let nm ← freshName (c.name.appendAfter "_refuted")
+    if let some f ← commitFact { name := nm, stmt := negStmt, proof := pf } then
+      return ({ corpus with facts := corpus.facts.push f }, .refuted witness)
+  if let some (pf, how) ← ctx.withBudget <| probeProve ctx corpus c.stmt then
+    let nm ← freshName c.name
+    match ← commitFact { name := nm, stmt := c.stmt, proof := pf } with
+    | some f =>
+      return ({ corpus with facts := corpus.facts.push f }, .admitted f how)
+    | none => return (corpus, .refusedAtGate)
+  return (corpus, .stillOpen)
+
 /-!
 ## Generative operators (DESIGN_INVENT D5, slice one)
 

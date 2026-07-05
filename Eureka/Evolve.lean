@@ -1,25 +1,27 @@
 import Eureka.Reflect
+import Eureka.Worth
 
 /-!
 # The population: worth, budget, birth, death
 
 The EURISKO layer. Heuristics — template and born alike — live in one
-population as `Agent`s. Any agent may propose facts *or new heuristics as
-source code* (`RProposal.rule`), so heuristics birth heuristics to any
-depth; births pass the rule gate, facts pass the fact gate, exactly as in
-the model (`admitRuleGated`). Worth is earned:
+population as `Agent`s. Any agent may propose facts, *new heuristics as
+source code* (`RProposal.rule`) — so heuristics birth heuristics to any
+depth — or *concepts* (`RProposal.concept`), mirroring the model's three
+proposal kinds. Births pass the rule gate, facts pass the fact gate,
+concepts pass the birth gate and the identity probe.
 
-  worth = min 1 (admitRate × dupPenalty)
-  admitRate  = (admitted + ½·childAdmitted + ½) / (judged + 1)
-  dupPenalty = 1 − merged/(proposed + 1)
-
-The duplication penalty makes synonym-tower behavior *unprofitable* — the
-failure mode where worth credits duplicators, observed in
-formal-disco-eurisko-verified, is priced in from the start. Parent credit
-(`childAdmitted`) pays heuristic-writers for their children's discoveries,
-so a productive meta-heuristic rises on the agenda. Each generation has a
-judge budget spent in worth order — low-worth agents starve — and agents
-with enough trials and negligible worth are killed.
+Worth (DESIGN_WORTH) is a fold of the event ledger through the pricing
+table (`Eureka.Worth`): smoothed value per unit of attention, certainty
+paid over novelty, children's value at `childFactor`, alias-farming
+priced out by per-target decay. Each generation spends a judge budget in
+worth order, with an exploration floor — every live agent gets one
+judged proposal per generation before the shared budget applies (W3), so
+starvation above the floor is a priced choice and the kill rule gets the
+trials it needs. Agents with enough attention and negligible worth are
+killed. Worth only decides *attention*: no pricing change can affect
+what the gates admit (W4 — `discovery_sound` quantifies over adversarial
+interpreters, which subsumes every schedule).
 -/
 
 open Lean Meta
@@ -27,10 +29,12 @@ open Lean Meta
 namespace Eureka
 namespace Runtime
 
-/-- What an agent may propose: a fact, or a new heuristic as source code. -/
+/-- What an agent may propose: a fact, a new heuristic as source code, or
+a concept — the model's three proposal kinds. -/
 inductive RProposal where
   | fact (c : Conjecture)
   | rule (name : Name) (src : String)
+  | concept (p : ConceptProposal)
 
 /-- The agent interface type for born heuristics. -/
 abbrev AgentFn := Corpus → MetaM (Array RProposal)
@@ -45,22 +49,6 @@ structure Agent where
 def Agent.ofConj (h : ConjHeuristic) : Agent where
   name := h.name
   propose := fun c => return (← h.propose c).map .fact
-
-structure AgentStats where
-  proposed : Nat := 0
-  judged : Nat := 0
-  admitted : Nat := 0
-  refuted : Nat := 0
-  merged : Nat := 0
-  openCount : Nat := 0
-  rulesBorn : Nat := 0
-  childAdmitted : Nat := 0
-
-def AgentStats.worth (s : AgentStats) : Float :=
-  let eff := s.admitted.toFloat + 0.5 * s.childAdmitted.toFloat
-  let admitRate := (eff + 0.5) / (s.judged.toFloat + 1.0)
-  let dupPenalty := 1.0 - s.merged.toFloat / (s.proposed.toFloat + 1.0)
-  min 1.0 (admitRate * dupPenalty)
 
 private def fmtW (x : Float) : String :=
   let n := (x * 100).round.toUInt32.toNat
@@ -104,37 +92,60 @@ structure EvolveConfig where
   knownPrefixes : List Name := [`Nat]
   /-- Domain refuter passed to `judge`; silent by default. -/
   refuter : Refuter := fun _ => pure none
+  /-- The pricing table (DESIGN_WORTH W2). -/
+  prices : Prices := {}
+  /-- The exploration floor (W3): each live agent gets one judged proposal
+  per generation before the shared budget applies. -/
+  explorationFloor : Bool := true
+  /-- Concept routing (W5): the probe context for `commitConcept` +
+  `probeConcept`. Concept proposals are refused when absent. -/
+  probeCtx : Option ProbeCtx := none
+  /-- Canonical probe targets for the identity probe. -/
+  canonical : Array ProbeTarget := #[]
 
-/-- Run the population. Every fact still enters through `commitFact`; every
-birth still enters through the rule gate. Worth only decides *attention*. -/
-def evolve (initial : List Agent) (cfg : EvolveConfig := {})
-    (seed : Corpus := {}) : MetaM Corpus := do
+/-- The population run's full result: the corpus, the event ledger (the
+economy's instrument), the concept pool, and the final population. -/
+structure EvolveResult where
+  corpus : Corpus
+  ledger : Ledger
+  pool : ConceptPool
+  population : Array Agent
+  dead : Array Name
+
+/-- Run the population. Every fact still enters through `commitFact`,
+every heuristic birth through the rule gate, every concept through the
+birth gate. Worth only decides *attention*. -/
+def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
+    (seed : Corpus := {}) (seedPool : ConceptPool := {}) : MetaM EvolveResult := do
   let known ← collectKnown cfg.knownPrefixes
   let mut corpus := seed
   let mut attempted : Array (Expr × Name) :=
     corpus.facts.map fun f => (f.stmt, f.name)
   let mut population : Array Agent := initial.toArray
-  let mut stats : Std.HashMap Name AgentStats := {}
+  let mut ledger : Ledger := {}
+  let mut pool : ConceptPool := seedPool
   let mut dead : Std.HashSet Name := {}
   for gen in [1 : cfg.generations + 1] do
     IO.println ""
     IO.println s!"── generation {gen} ──"
+    let pop := population
+    let children := fun (a : Name) =>
+      (pop.filter (fun x => x.parent == some a)).map (·.name)
+    let wor := fun (a : Name) => ledger.worth cfg.prices children a
     let live := population.filter fun a => !dead.contains a.name
-    let ordered := live.qsort fun a b =>
-      (stats.getD a.name {}).worth > (stats.getD b.name {}).worth
+    let ordered := live.qsort fun a b => wor a.name > wor b.name
     IO.println <| "  agenda: " ++ String.intercalate " · "
-      (ordered.toList.map fun a => s!"{a.name} {fmtW (stats.getD a.name {}).worth}")
+      (ordered.toList.map fun a => s!"{a.name} {fmtW (wor a.name)}")
     let mut budget := cfg.judgeBudget
     let mut starved : Array Name := #[]
     for agent in ordered do
-      if budget == 0 then
+      let mut floorLeft := if cfg.explorationFloor then 1 else 0
+      if budget == 0 && floorLeft == 0 then
         starved := starved.push agent.name
         continue
       let some proposals ← attempt (agent.propose corpus)
         | IO.println s!"  [{agent.name}] crashed when fired"; continue
       let proposals := proposals.toList.take cfg.perAgentCap
-      let mut s := stats.getD agent.name {}
-      s := { s with proposed := s.proposed + proposals.length }
       for p in proposals do
         match p with
         | .rule childName src =>
@@ -143,13 +154,46 @@ def evolve (initial : List Agent) (cfg : EvolveConfig := {})
           match ← installAgentSrc childName src (parent := agent.name) with
           | .ok child =>
             population := population.push child
-            s := { s with rulesBorn := s.rulesBorn + 1 }
+            ledger := ledger.record agent.name .ruleBorn
             IO.println s!"  ✚ [{agent.name}] birthed heuristic {childName} (rule gate passed)"
           | .error e =>
             IO.println s!"  ✗ [{agent.name}] birth of {childName} refused: {e}"
+        | .concept cp =>
+          match cfg.probeCtx with
+          | none =>
+            ledger := ledger.record agent.name .conceptRefused
+            IO.println s!"  ! [{agent.name}] concept {cp.name} — no concept gate configured"
+          | some ctx =>
+            if (← getEnv).contains (inventedNs ++ cp.name) then
+              continue -- already born; silent (agents re-fire every generation)
+            match ← commitConcept pool { cp with origin := agent.name } with
+            | .error reason =>
+              ledger := ledger.record agent.name .conceptRefused
+              IO.println s!"  ! [{agent.name}] concept {cp.name} refused at birth: {reason}"
+            | .ok (pool', c) =>
+              pool := pool'
+              let (pool'', corpus', verdict) ← withCurrHeartbeats <|
+                probeConcept ctx pool corpus c cfg.canonical
+              pool := pool''
+              corpus := corpus'
+              match verdict with
+              | .aliasOf t _ _ =>
+                ledger := ledger.record agent.name (.conceptAlias t false)
+                IO.println s!"  ≡ [{agent.name}] {c.name} — {verdict.describe}"
+              | .degenerate _ _ =>
+                ledger := ledger.record agent.name .conceptDegenerate
+                IO.println s!"  ⊥ [{agent.name}] {c.name} — {verdict.describe}"
+              | .novel spec genl =>
+                ledger := ledger.record agent.name .conceptNovel
+                -- certified structure about the concept pays its inventor
+                for _ in spec do
+                  ledger := ledger.record agent.name (.inventedEdge c.name)
+                for _ in genl do
+                  ledger := ledger.record agent.name (.inventedEdge c.name)
+                IO.println s!"  ✦ [{agent.name}] {c.name} — {verdict.describe}"
         | .fact c =>
           if attempted.any (fun q => q.1 == c.stmt) then
-            s := { s with merged := s.merged + 1 } -- verbatim repeat; silent
+            ledger := ledger.record agent.name .factRepeat -- re-firing; free
             continue
           let mut alias? : Option Name := none
           for (a, nm) in attempted do
@@ -157,55 +201,92 @@ def evolve (initial : List Agent) (cfg : EvolveConfig := {})
               alias? := some nm
               break
           if let some nm := alias? then
-            s := { s with merged := s.merged + 1 }
+            ledger := ledger.record agent.name .factDup
             attempted := attempted.push (c.stmt, nm)
             IO.println s!"  ≡ [{agent.name}] {toString (← ppExpr c.stmt)} — alias of {nm}, merged"
             continue
-          if budget == 0 then
+          if floorLeft > 0 then
+            floorLeft := floorLeft - 1  -- the exploration floor pays
+          else if budget > 0 then
+            budget := budget - 1
+          else
             continue
-          budget := budget - 1
-          s := { s with judged := s.judged + 1 }
           attempted := attempted.push (c.stmt, c.name)
           let pretty := toString (← ppExpr c.stmt)
-          let (corpus', outcome) ← judge known corpus c cfg.refuter
+          -- Conjectures in invented vocabulary go through the concept-aware
+          -- judge: `judge`'s hunt sees invented constants as opaque.
+          let mentionsInvented := pool.concepts.any fun cc =>
+            c.stmt.getUsedConstants.contains cc.name
+          let (corpus', outcome) ←
+            match cfg.probeCtx, mentionsInvented with
+            | some ctx, true => judgeConceptFact ctx corpus c cfg.refuter
+            | _, _ => judge known corpus c cfg.refuter
           corpus := corpus'
           match outcome with
           | .refuted cex =>
-            s := { s with refuted := s.refuted + 1 }
+            ledger := ledger.record agent.name .factRefuted
             IO.println s!"  ✗ [{agent.name}] {pretty} — refuted ({cex})"
           | .stillOpen =>
-            s := { s with openCount := s.openCount + 1 }
+            ledger := ledger.record agent.name .factOpen
             IO.println s!"  ? [{agent.name}] {pretty} — open"
-          | .admitted _ note =>
-            s := { s with admitted := s.admitted + 1 }
+          | .admitted f note =>
+            ledger := ledger.record agent.name .factAdmitted
             IO.println s!"  ✓ [{agent.name}] {pretty} — admitted ({note})"
-            if let some p := agent.parent then
-              let ps := stats.getD p {}
-              stats := stats.insert p { ps with childAdmitted := ps.childAdmitted + 1 }
+            -- Facts in invented vocabulary pay the concepts' inventors;
+            -- a fact linking two inventions re-probes the pair (D3
+            -- trigger (i)) — a merge is delayed credit to the inventor.
+            let used := f.stmt.getUsedConstants
+            let mentioned := pool.concepts.filter fun cc => used.contains cc.name
+            for cc in mentioned do
+              ledger := ledger.record cc.origin (.inventedEdge cc.name)
+            if mentioned.size ≥ 2 then
+              if let some ctx := cfg.probeCtx then
+                let (pool', corpus'', merges) ←
+                  reprobeOnFact ctx pool corpus f
+                pool := pool'
+                corpus := corpus''
+                for (younger, elder) in merges do
+                  let origin := ((pool.find? younger).map (·.origin)).getD .anonymous
+                  ledger := ledger.record origin (.conceptAlias elder true)
+                  IO.println s!"  ≡ re-probe merged {younger} into {elder} \
+(delayed credit to {origin})"
           | .refusedAtGate =>
+            ledger := ledger.record agent.name .refusedAtGate
             IO.println s!"  ! [{agent.name}] {pretty} — evidence REFUSED by the gate"
-      stats := stats.insert agent.name s
     unless starved.isEmpty do
       IO.println s!"  budget exhausted — starved: {starved.toList}"
     -- kill sweep
+    let pop' := population
+    let children' := fun (a : Name) =>
+      (pop'.filter (fun x => x.parent == some a)).map (·.name)
     for a in population do
       if !dead.contains a.name then
-        let s := stats.getD a.name {}
-        if s.judged ≥ cfg.minTrials && s.worth < cfg.killThreshold then
+        let att := ledger.attention a.name
+        let w := ledger.worth cfg.prices children' a.name
+        if att ≥ cfg.minTrials && w < cfg.killThreshold then
           dead := dead.insert a.name
-          IO.println s!"  † {a.name} killed (worth {fmtW s.worth} after {s.judged} judged)"
+          IO.println s!"  † {a.name} killed (worth {fmtW w} after {att} attention)"
   IO.println ""
   IO.println "population (final):"
+  let popF := population
+  let childrenF := fun (a : Name) =>
+    (popF.filter (fun x => x.parent == some a)).map (·.name)
   for a in population do
-    let s := stats.getD a.name {}
     let mark := if dead.contains a.name then " †" else ""
     let from_ := match a.parent with
       | some p => s!" (born of {p})"
       | none => ""
-    IO.println s!"  {a.name}{mark}: worth {fmtW s.worth} — \
-{s.admitted} admitted, {s.refuted} refuted, {s.merged} merged, \
-{s.openCount} open, {s.rulesBorn} birthed, {s.childAdmitted} via children{from_}"
-  return corpus
+    IO.println s!"  {a.name}{mark}: worth \
+{fmtW (ledger.worth cfg.prices childrenF a.name)} — \
+{(ledger.counts a.name).describe}{from_}"
+  return { corpus, ledger, pool, population,
+           dead := population.filterMap fun a =>
+             if dead.contains a.name then some a.name else none }
+
+/-- `evolveWith`, corpus only. -/
+def evolve (initial : List Agent) (cfg : EvolveConfig := {})
+    (seed : Corpus := {}) : MetaM Corpus := do
+  return (← evolveWith initial cfg seed).corpus
 
 /-!
 ## A template meta-heuristic

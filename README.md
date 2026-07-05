@@ -453,6 +453,21 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
       at birth (the canonical pool in the prompt steers the model off the
       synonym tower), 8 novel-so-far incl. cyclic flats and
       circuit-hyperplanes, 2 certified specializes-edges
+- [x] The yield curve, slice one (DESIGN_INVENT D5, `MatroidYieldRun.lean`):
+      the operator set exhaustively over the extracted matroid pool — 82
+      products; dualize grounds 6/9 as certified aliases (the duality
+      involution), singleton-lift 3/7 + a certified ⊤, boolean operators
+      1/66; facts phase with the witness-kit refuter: 934 implications —
+      87 admitted, 569 certified-refuted, 278 open (REPORT_INVENT.md)
+- [x] Worth repriced (DESIGN_WORTH.md): the admissions-only worth function
+      replaced by a fold of an event ledger through a pricing table —
+      certainty paid over novelty, refutations pay with decaying returns,
+      alias-farming priced out, delayed credit (re-probe merges) lands
+      generations later; exploration floor under the worth-ordered budget;
+      concepts as a third `RProposal` kind judged in the population; the
+      economy experiment re-run *separates* (`Eureka/Worth.lean`,
+      `WorthStub.lean` in CI, `MatroidEconomyRun.lean`,
+      `MatroidDerbyRun.lean`)
 - [ ] Concept invention, slice two: compounding operators (invented
       concepts re-enter the operator pool), the yield-curve run at
       generative depth

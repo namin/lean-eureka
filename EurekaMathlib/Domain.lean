@@ -132,9 +132,12 @@ conjecture's shape (set vs element) fail the type check and are skipped;
 a refuter this partial is honest by construction: silence leaves the
 conjecture open, it never certifies truth. -/
 def refuteByInstances (simpArgs : Array String) (carrierVal : Expr)
-    (instances : Array (Expr × Expr × String)) (stmt : Expr) :
-    MetaM (Option (Expr × Expr × String)) := do
-  let tac := s!"simp [{String.intercalate ", " simpArgs.toList}]"
+    (instances : Array (Expr × Expr × String)) (stmt : Expr)
+    (pre : String := "") : MetaM (Option (Expr × Expr × String)) := do
+  -- `pre` runs before the simp — e.g. `unfold Invented.X; ` for invented
+  -- vocabulary, which simp cannot unfold by name (no equation lemmas are
+  -- generated for raw `addDecl` definitions; delta works).
+  let tac := s!"{pre}simp [{String.intercalate ", " simpArgs.toList}]"
   -- Bounded: open exactly `α M X` and keep the conjecture's implication
   -- arrow inside the body (a plain telescope would take the hypothesis of
   -- `P → Q` as a fourth binder).

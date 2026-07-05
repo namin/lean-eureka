@@ -3,11 +3,14 @@ import Eureka
 /-!
 Deterministic population run — no LLM. Templates and one meta-heuristic
 (`specializerH`) compete for a per-generation judge budget allocated by
-worth; `junkH` (falsehoods only) is killed by the kill rule; the specializer
-births explorers (heuristic code generated from corpus data), and each
-explorer births a probe — reflective depth 2: heuristic → heuristic →
-heuristic, every birth through the rule gate, every fact through the fact
-gate. Run with `lake env lean EvolveStub.lean`.
+worth (the DESIGN_WORTH ledger economy: certified refutations pay with
+decaying returns, so `junkH` — falsehoods only — sinks to the agenda
+floor instead of plateauing; verbatim re-proposals are free); the
+specializer births explorers (heuristic code generated from corpus data),
+and each explorer births a probe — reflective depth 2: heuristic →
+heuristic → heuristic, every birth through the rule gate, every fact
+through the fact gate. The kill rule is exercised in `WorthStub.lean`.
+Run with `lake env lean EvolveStub.lean`.
 -/
 
 open Lean Eureka.Runtime

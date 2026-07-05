@@ -28,3 +28,5 @@ jobs:
         run: lake env lean ReflectStub.lean
       - name: population engine (deterministic)
         run: lake env lean EvolveStub.lean
+      - name: worth economy (deterministic)
+        run: lake env lean WorthStub.lean

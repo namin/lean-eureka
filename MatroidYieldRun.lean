@@ -132,10 +132,10 @@ and_left_comm]"]
   note s!"facts phase: {survivors.size} survivors × canonical, both \
 directions (survivor × survivor deferred to the next sweep)"
   let factsCtx := { ctx with probeHeartbeats := some 5000 }
-  let inventedRefuter : Refuter :=
-    refuteByInstances
-      (matroidRefuterSimpArgs ++ survivors.map (·.name.toString))
-      (mkConst ``Nat) matroidInstances
+  -- The refuter gets *targeted* unfolds — just the invented names the
+  -- statement mentions, not the whole pool: a 100-entry simp vocabulary
+  -- under a budget is curtailed into silence before it decides anything.
+  let refCtx := { ctx with probeHeartbeats := some 20000 }
   let mut attempted := 0
   let mut admitted := 0
   let mut refuted := 0
@@ -148,8 +148,15 @@ directions (survivor × survivor deferred to the next sweep)"
         if corpus.facts.any (·.stmt == stmt) then continue
         attempted := attempted + 1
         let base := s!"{a.name.getString!}_imp_{b.name.getString!}"
-        if let some (negStmt, pf, witness) ← factsCtx.withBudget <|
-            withCurrHeartbeats <| inventedRefuter stmt then
+        -- simp cannot unfold gate-declared defs (no equation lemmas for
+        -- raw `addDecl`); `unfold` can — prefix it.
+        let usedInvented := (stmt.getUsedConstants.filter
+          (inventedNs.isPrefixOf ·)).map toString
+        let pre := s!"unfold {String.intercalate " " usedInvented.toList}; "
+        let refuter : Refuter := fun s => refuteByInstances
+          matroidRefuterSimpArgs (mkConst ``Nat) matroidInstances s (pre := pre)
+        if let some (negStmt, pf, witness) ← refCtx.withBudget <|
+            withCurrHeartbeats <| refuter stmt then
           let nm ← freshName (.mkSimple s!"{base}_refuted")
           if let some f ← commitFact { name := nm, stmt := negStmt, proof := pf } then
             corpus := { corpus with facts := corpus.facts.push f }
