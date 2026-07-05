@@ -468,9 +468,20 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
       economy experiment re-run *separates* (`Eureka/Worth.lean`,
       `WorthStub.lean` in CI, `MatroidEconomyRun.lean`,
       `MatroidDerbyRun.lean`)
-- [ ] Concept invention, slice two: compounding operators (invented
-      concepts re-enter the operator pool), the yield-curve run at
-      generative depth
+- [x] Concept invention, slice two (DESIGN_INVENT C1–C5): compounding —
+      dualize/singleton-lift re-applied to live pool concepts
+      (`Agent.proposeP`, depth-capped), alias pay decaying per agent;
+      the duality involution certified at depth 2, `elem_dual_Dep ≡
+      IsColoop` composed and certified (`MatroidCompoundRun.lean`)
+- [x] The grand run (`MatroidGrandRun.lean`, REPORT_GRAND.md): eight
+      agents — templates, operators, compounder, invented-implications,
+      LLM concept booth — in one population under the repriced economy;
+      45 concepts (24 at depth 2, whose certified yield *exceeded*
+      depth 1), 81 certified facts, and four kernel-checked duality
+      bridges over pure LLM vocabulary
+      (`dual_MatroidIsSimplePoint ≡ MatroidIsSeriesPoint`, …) — the
+      first certified new structure over new vocabulary; the booth's
+      kill-then-posthumous-vindication is Arc 3's motivating instrument
 - [x] A refuter for predicate domains, first slice: conjectures
       instantiated at concrete matroids, the negation proved by simp, every
       refutation kernel-gated — 32 of the matroid sweep's 42 opens die, 10
