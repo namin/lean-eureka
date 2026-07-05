@@ -72,9 +72,30 @@ operations (`∈`, `⊆`, `∩`, `∪`, `\\`, `{e}`, `Set.Finite`)"
      dualityAgent preds, singletonAgent preds,
      dualizerAgent canonical, compounderAgent,
      inventedImplAgent canonical, booth]
+  -- The deep ladder for the escalation pass (DESIGN_DEPTH): Set.* in the
+  -- pool, safe canonical transparency (const-headed defs only —
+  -- projections defeat head-indexing), composition depth 3.
+  let deepKnown ← collectKnown [carrier, `Set]
+  let mut safeCanon : Array Name := #[]
+  for t in canonical do
+    if let some ci := (← getEnv).find? t.name then
+      if let some v := ci.value? then
+        let mut b := v
+        while b.isLambda do
+          b := b.bindingBody!
+        if b.getAppFn.isConst then
+          safeCanon := safeCanon.push t.name
+  let safeCanon' := safeCanon
+  let deepCtx : ProbeCtx :=
+    { known := deepKnown
+      transparent := fun n =>
+        inventedNs.isPrefixOf n || safeCanon'.contains n
+      extraRungs := ctx.extraRungs ++ #["aesop"]
+      composeDepth := 3 }
   let r ← evolveWith agents
     { generations := 4, judgeBudget := 40, perAgentCap := 20,
-      knownPrefixes := [carrier], refuter, probeCtx := some ctx, canonical }
+      knownPrefixes := [carrier], refuter, probeCtx := some ctx, canonical,
+      escalationBudget := 5, deepCtx := some deepCtx }
   -- The instruments.
   IO.println ""
   IO.println "── the pool, by depth ──"
