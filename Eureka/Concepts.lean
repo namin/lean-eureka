@@ -530,20 +530,29 @@ def InventStats.describe (s : InventStats) : String :=
 {s.degenerate} degenerate, {s.aliased} merged as aliases, \
 {s.novel} novel-so-far, {s.edgeFacts} certified spec/genl edges"
 
+/-- One candidate's fate at the birth gate — a refusal reason or a
+verdict. Callers that speak back to a proposer (the concept booth) build
+their feedback from these. -/
+structure BirthReport where
+  name : Name
+  outcome : Except String ConceptVerdict
+
 /-- Drive one batch of candidates through the lifecycle: birth gate,
 identity probe, verdict. Logs one line per candidate; refusals carry
-their reasons. -/
-def inventRound (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
+their reasons. Returns per-candidate reports alongside the stats. -/
+def inventRoundWith (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
     (canonical : Array ProbeTarget) (proposals : Array ConceptProposal) :
-    MetaM (ConceptPool × Corpus × InventStats) := do
+    MetaM (ConceptPool × Corpus × InventStats × Array BirthReport) := do
   let mut pool := pool
   let mut corpus := corpus
   let mut stats : InventStats := {}
+  let mut reports : Array BirthReport := #[]
   for p in proposals do
     stats := { stats with candidates := stats.candidates + 1 }
     match ← commitConcept pool p with
     | .error reason =>
       stats := { stats with refused := stats.refused + 1 }
+      reports := reports.push ⟨p.name, .error reason⟩
       IO.println s!"  ! {p.name} — refused at birth: {reason}"
     | .ok (pool', c) =>
       pool := pool'
@@ -551,6 +560,7 @@ def inventRound (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
         withCurrHeartbeats <| probeConcept ctx pool corpus c canonical
       pool := pool''
       corpus := corpus'
+      reports := reports.push ⟨p.name, .ok verdict⟩
       match verdict with
       | .degenerate _ _ =>
         stats := { stats with degenerate := stats.degenerate + 1 }
@@ -563,6 +573,14 @@ def inventRound (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
           novel := stats.novel + 1
           edgeFacts := stats.edgeFacts + spec.size + genl.size }
         IO.println s!"  ✦ {c.name} — {verdict.describe}"
+  return (pool, corpus, stats, reports)
+
+/-- `inventRoundWith`, reports dropped. -/
+def inventRound (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
+    (canonical : Array ProbeTarget) (proposals : Array ConceptProposal) :
+    MetaM (ConceptPool × Corpus × InventStats) := do
+  let (pool, corpus, stats, _) ←
+    inventRoundWith ctx pool corpus canonical proposals
   return (pool, corpus, stats)
 
 end Runtime

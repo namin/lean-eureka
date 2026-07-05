@@ -22,6 +22,8 @@ jobs:
         run: lake env lean ChainStub.lean
       - name: concept lifecycle (deterministic)
         run: lake env lean InventStub.lean
+      - name: concept booth (deterministic)
+        run: lake env lean InventBoothStub.lean
       - name: rule gate (deterministic)
         run: lake env lean ReflectStub.lean
       - name: population engine (deterministic)

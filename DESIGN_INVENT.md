@@ -12,9 +12,12 @@ namespace + audit, certificate verdicts, tombstone+bridge merge,
 re-probe triggers, budgeted sweep, conjunction/negated-conjunct
 operators). Acceptance tests 2–6: `InventStub.lean` (in CI). Test 1,
 the tower at birth: `MatroidInventStub.lean` (needs the Mathlib
-build). Out of slice one, as ruled in D5/D7: compounding operators,
-the yield-curve run at generative depth, the LLM booth stage, worth
-for concepts (Arc 2).
+build). The D6 booth stage is also built: `Eureka/ConceptBooth.lean`
+(deterministic `InventBoothStub.lean` in CI; live matroid run in
+`MatroidInventRun.lean` — 8/8 LLM proposals born, 0 aliases at birth,
+2 certified edges). Out of slice one, as ruled in D5/D7: compounding
+operators, the yield-curve run at generative depth, worth for concepts
+(Arc 2).
 
 ## What this is
 
@@ -160,7 +163,7 @@ Test 1 lives in `MatroidInventStub.lean`; tests 2–6 in
 - [x] D5 (conjunction/negated-conjunct generic; dualization with the
       matroid domain) + tests 1–6 as deterministic stubs.
 - [ ] The yield-curve run at generative depth.
-- [ ] D6: LLM booth stage.
+- [x] D6: LLM booth stage (`ConceptBooth.lean`, stub + live matroid run).
 
 ## Out of scope
 

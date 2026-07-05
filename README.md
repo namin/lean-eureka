@@ -443,9 +443,19 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
       conjunction/negated-conjunct operators (`Eureka/Concepts.lean`;
       acceptance tests 2–6 in `InventStub.lean`, the baseline's synonym
       tower merged at birth in `MatroidInventStub.lean`)
+- [x] Concept booth (DESIGN_INVENT D6): the LLM proposes *definitions*
+      in a fixed line format, elaborated at the declared shape's type and
+      judged by the same birth gate and identity probes; per-candidate
+      fates (merged/degenerate/novel/refused) feed back into the next
+      round's prompt (`Eureka/ConceptBooth.lean`; deterministic
+      `InventBoothStub.lean` in CI). Live matroid run
+      (`MatroidInventRun.lean`): 8/8 proposals parsed and born, 0 merged
+      at birth (the canonical pool in the prompt steers the model off the
+      synonym tower), 8 novel-so-far incl. cyclic flats and
+      circuit-hyperplanes, 2 certified specializes-edges
 - [ ] Concept invention, slice two: compounding operators (invented
       concepts re-enter the operator pool), the yield-curve run at
-      generative depth, LLM booth stage for concept proposals
+      generative depth
 - [x] A refuter for predicate domains, first slice: conjectures
       instantiated at concrete matroids, the negation proved by simp, every
       refutation kernel-gated — 32 of the matroid sweep's 42 opens die, 10
