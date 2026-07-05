@@ -21,27 +21,6 @@ open Lean Meta Eureka.Runtime
 
 set_option linter.unusedSimpArgs false
 
-def dualizerAgent (canonical : Array ProbeTarget) : Agent where
-  name := `dualizer
-  propose := fun _ => do
-    let mut out : Array RProposal := #[]
-    for t in canonical do
-      if let some p ← mkDualizeProposal t then
-        unless (← getEnv).contains (inventedNs ++ p.name) do
-          out := out.push (.concept p)
-    return out
-
-def conjAgent (canonical : Array ProbeTarget) : Agent where
-  name := `conj
-  propose := fun _ => do
-    let mut out : Array RProposal := #[]
-    for i in [0 : canonical.size] do
-      for j in [i + 1 : canonical.size] do
-        if let some p ← mkConjProposal false canonical[i]! canonical[j]! then
-          unless (← getEnv).contains (inventedNs ++ p.name) do
-            out := out.push (.concept p)
-    return out
-
 #eval show MetaM Unit from do
   let carrier := `Matroid
   let preds ← collectPredicates carrier

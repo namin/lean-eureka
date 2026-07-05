@@ -45,6 +45,9 @@ structure ConceptProposal where
   type : Expr
   value : Expr
   origin : Name := `anonymous
+  /-- Generative depth (DESIGN_INVENT C2): 1 for products of canonical
+  inputs and direct proposals; compounding an invented input adds one. -/
+  depth : Nat := 1
 
 /-- A concept the gate has admitted: an invented definition living in the
 reserved namespace. `mergedInto` is the tombstone — a merged concept stays
@@ -55,6 +58,7 @@ structure Concept where
   type : Expr
   value : Expr
   origin : Name := `anonymous
+  depth : Nat := 1
   mergedInto : Option Name := none
   deriving Inhabited
 
@@ -134,7 +138,9 @@ def commitConcept (pool : ConceptPool) (p : ConceptProposal) :
   unless axioms.all allowedAxioms.contains do
     setEnv env
     return .error "definition depends on disallowed axioms"
-  let c : Concept := { name, type := p.type, value := p.value, origin := p.origin }
+  let c : Concept :=
+    { name, type := p.type, value := p.value, origin := p.origin,
+      depth := p.depth }
   return .ok ({ pool with concepts := pool.concepts.push c }, c)
 
 /-- The reserved-namespace audit: every constant under `Invented` must

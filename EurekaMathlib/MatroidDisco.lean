@@ -99,8 +99,11 @@ generic operators (conjunction, negated-conjunct) are in
 `Eureka.Concepts`.
 -/
 
-/-- Dualization: `P M X ↦ P M✶ X`, either shape. -/
-def mkDualizeProposal (t : ProbeTarget) : MetaM (Option ConceptProposal) := do
+/-- Dualization: `P M X ↦ P M✶ X`, either shape. `depth` is the
+product's generative depth (C2): 1 over canonical inputs; compounding an
+invented input passes `input.depth + 1`. -/
+def mkDualizeProposal (t : ProbeTarget) (depth : Nat := 1) :
+    MetaM (Option ConceptProposal) := do
   let r ← attempt <| forallTelescope t.type fun xs body => do
     unless body == .sort .zero do return none
     unless xs.size == 3 do return none
@@ -109,12 +112,13 @@ def mkDualizeProposal (t : ProbeTarget) : MetaM (Option ConceptProposal) := do
     let value ← mkLambdaFVars xs app
     let type ← mkForallFVars xs (.sort .zero)
     return some { name := .mkSimple s!"dual_{t.name.getString!}",
-                  type, value, origin := `dualize }
+                  type, value, origin := `dualize, depth }
   return r.join
 
 /-- Singleton-lift: a set predicate becomes an element predicate,
 `P M X ↦ fun M e => P M {e}` — the element↔set bridge as an operator. -/
-def mkSingletonLiftProposal (t : ProbeTarget) : MetaM (Option ConceptProposal) := do
+def mkSingletonLiftProposal (t : ProbeTarget) (depth : Nat := 1) :
+    MetaM (Option ConceptProposal) := do
   let r ← attempt <| forallTelescope t.type fun xs body => do
     unless body == .sort .zero do return none
     unless xs.size == 3 do return none
@@ -127,8 +131,82 @@ def mkSingletonLiftProposal (t : ProbeTarget) : MetaM (Option ConceptProposal) :
       let value ← mkLambdaFVars #[α, xs[1]!, e] app
       let type ← mkForallFVars #[α, xs[1]!, e] (.sort .zero)
       return some { name := .mkSimple s!"elem_{t.name.getString!}",
-                    type, value, origin := `singletonLift }
+                    type, value, origin := `singletonLift, depth }
   return r.join
+
+/-- Compounding (slice two, C1–C3): dualize and singleton-lift over the
+*live pool*, inputs below the depth cap, products not already born. The
+boolean operators do not re-enter. -/
+def compoundProposals (pool : ConceptPool) (depthCap : Nat := 2) :
+    MetaM (Array ConceptProposal) := do
+  let ops : List (ProbeTarget → Nat → MetaM (Option ConceptProposal)) :=
+    [fun t d => mkDualizeProposal t d, fun t d => mkSingletonLiftProposal t d]
+  let mut out : Array ConceptProposal := #[]
+  for c in pool.live do
+    if c.depth < depthCap then
+      for mk in ops do
+        if let some p ← mk c.toTarget (c.depth + 1) then
+          unless (← getEnv).contains (inventedNs ++ p.name) do
+            out := out.push p
+  return out
+
+/-- The compounding operator agent (slice two): reads the pool via
+`proposeP`. -/
+def compounderAgent : Agent where
+  name := `compounder
+  propose := fun _ => return #[]
+  proposeP := some fun pool _ => do
+    return (← compoundProposals pool).map .concept
+
+/-- Depth-1 dualization over the canonical pool, as an agent. -/
+def dualizerAgent (canonical : Array ProbeTarget) : Agent where
+  name := `dualizer
+  propose := fun _ => do
+    let mut out : Array RProposal := #[]
+    for t in canonical do
+      if let some p ← mkDualizeProposal t then
+        unless (← getEnv).contains (inventedNs ++ p.name) do
+          out := out.push (.concept p)
+    return out
+
+/-- Proposes implications between live invented concepts and the
+canonical pool, both directions — the agent that makes invention *pay*:
+its admissions route through the concept-aware judge and credit the
+concepts' inventors. Rotates its enumeration by corpus size so the
+per-agent cap sees fresh pairs each generation. -/
+def inventedImplAgent (canonical : Array ProbeTarget) : Agent where
+  name := `invented_impls
+  propose := fun _ => return #[]
+  proposeP := some fun pool corpus => do
+    let mut pairs : Array (ProbeTarget × ProbeTarget) := #[]
+    for c in pool.live do
+      for t in canonical do
+        if ← targetsCompatible c.toTarget t then
+          pairs := pairs.push (c.toTarget, t)
+          pairs := pairs.push (t, c.toTarget)
+    if pairs.isEmpty then return #[]
+    let offset := (corpus.facts.size * 7) % pairs.size
+    let rotated := pairs.extract offset pairs.size ++ pairs.extract 0 offset
+    let mut out : Array RProposal := #[]
+    for (a, b) in rotated do
+      if let some stmt ← mkImplStmt a b then
+        out := out.push (.fact
+          { name := .mkSimple s!"{a.name.getString!}_imp_{b.name.getString!}",
+            stmt, origin := `invented_impls })
+    return out
+
+/-- Conjunction over canonical pairs, as an agent — the derby's noise
+arm; does not compound (C1). -/
+def conjAgent (canonical : Array ProbeTarget) : Agent where
+  name := `conj
+  propose := fun _ => do
+    let mut out : Array RProposal := #[]
+    for i in [0 : canonical.size] do
+      for j in [i + 1 : canonical.size] do
+        if let some p ← mkConjProposal false canonical[i]! canonical[j]! then
+          unless (← getEnv).contains (inventedNs ++ p.name) do
+            out := out.push (.concept p)
+    return out
 
 /-!
 ## The refuter kit

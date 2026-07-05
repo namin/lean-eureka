@@ -79,6 +79,11 @@ structure Prices where
   dup : Float := -0.25
   refused : Float := -0.5
   conceptAlias : Float := 0.75
+  /-- Decaying returns on alias credit per agent (DESIGN_INVENT C4), on
+  top of the per-target zeroing: without it, involution-farming pays —
+  `dual (dual X)` aliases back to canonical `X`, a fresh target per `X`,
+  mintable mechanically. The merges are fine; the pay must decay. -/
+  aliasDecay : Float := 6.0
   conceptDegenerate : Float := 0.25
   conceptNovel : Float := 0.0
   inventedEdge : Float := 1.0
@@ -100,6 +105,7 @@ def Ledger.ownValue (l : Ledger) (p : Prices) (agent : Name) : Float :=
   Id.run do
     let mut paidTargets : Array Name := #[]
     let mut refutedSeen : Float := 0.0
+    let mut aliasSeen : Float := 0.0
     let mut v : Float := 0.0
     for e in l.events do
       if e.agent == agent then
@@ -115,7 +121,8 @@ def Ledger.ownValue (l : Ledger) (p : Prices) (agent : Name) : Float :=
         | .ruleBorn => pure ()
         | .conceptAlias t _ =>
           unless paidTargets.contains t do
-            v := v + p.conceptAlias
+            v := v + p.conceptAlias / (1.0 + aliasSeen / p.aliasDecay)
+            aliasSeen := aliasSeen + 1.0
             paidTargets := paidTargets.push t
         | .conceptDegenerate => v := v + p.conceptDegenerate
         | .conceptNovel => v := v + p.conceptNovel

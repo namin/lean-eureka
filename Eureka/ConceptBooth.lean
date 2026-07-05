@@ -1,4 +1,4 @@
-import Eureka.Concepts
+import Eureka.Evolve
 
 /-!
 # The concept booth
@@ -147,6 +147,36 @@ structure ConceptBoothConfig where
   perRound : Nat := 6
   shapes : Array ConceptShape
   render : Array ProbeTarget → Option ConceptBoothLog → Nat → MetaM String
+
+/-- The concept booth as a population member (DESIGN_WORTH W5): one LLM
+round per firing, proposals judged by the ordinary concept gate in
+`evolve`. The pool is its feedback — its previous proposals' fates
+(merged where, or live) render into the next prompt. -/
+def conceptBoothAgent (call : String → IO (Except String String))
+    (shapes : Array ConceptShape) (domain : String)
+    (canonical : Array ProbeTarget) (perFire : Nat := 4) : Agent where
+  name := `concept_booth
+  propose := fun _ => return #[]
+  proposeP := some fun pool _ => do
+    let mine := pool.concepts.filter (·.origin == `concept_booth)
+    let mut log : ConceptBoothLog := {}
+    for c in mine do
+      match c.mergedInto with
+      | some t => log := { log with merged := log.merged.push (c.name.getString!, t) }
+      | none => log := { log with novel := log.novel.push (c.name.getString!, 0) }
+    let lastRound := if mine.isEmpty then none else some log
+    let prompt ← renderConceptPrompt domain shapes canonical lastRound perFire
+    match ← call prompt with
+    | .error e =>
+      IO.println s!"  [concept_booth] call failed: {e}"
+      return #[]
+    | .ok text =>
+      let mut out : Array RProposal := #[]
+      for line in extractConceptLines text do
+        if let some p ← parseConceptCandidate shapes line then
+          unless (← getEnv).contains (inventedNs ++ p.name) do
+            out := out.push (.concept p)
+      return out
 
 /-- Run concept-booth rounds against `call`. Everything the model proposes
 goes through the same birth gate and identity probes as the template

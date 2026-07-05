@@ -39,10 +39,14 @@ inductive RProposal where
 /-- The agent interface type for born heuristics. -/
 abbrev AgentFn := Corpus → MetaM (Array RProposal)
 
-/-- A member of the population. -/
+/-- A member of the population. `proposeP`, when present, supersedes
+`propose` and additionally sees the concept pool (DESIGN_INVENT C3:
+compounding agents must see tombstones and depths; the reflective agent
+interface `AgentFn` stays untouched). -/
 structure Agent where
   name : Name
   propose : AgentFn
+  proposeP : Option (ConceptPool → Corpus → MetaM (Array RProposal)) := none
   parent : Option Name := none
 
 /-- Wrap a facts-only heuristic as an agent. -/
@@ -143,7 +147,10 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
       if budget == 0 && floorLeft == 0 then
         starved := starved.push agent.name
         continue
-      let some proposals ← attempt (agent.propose corpus)
+      let fire := match agent.proposeP with
+        | some f => f pool corpus
+        | none => agent.propose corpus
+      let some proposals ← attempt fire
         | IO.println s!"  [{agent.name}] crashed when fired"; continue
       let proposals := proposals.toList.take cfg.perAgentCap
       for p in proposals do

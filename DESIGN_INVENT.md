@@ -165,8 +165,60 @@ Test 1 lives in `MatroidInventStub.lean`; tests 2–6 in
 - [ ] The yield-curve run at generative depth.
 - [x] D6: LLM booth stage (`ConceptBooth.lean`, stub + live matroid run).
 
+## Slice two: compounding (ruled after the yield curve and the derby)
+
+Deferred until the economy could price it; the derby showed it can
+(unpriced novelty dies within a generation). The yield table dictates
+the shape.
+
+**C1 — Only structure-aware operators compound.** Dualize and
+singleton-lift read the live pool and re-apply to invented concepts;
+the boolean operators do not re-enter (their depth-1 yield was 1/66,
+and their products' conjectures 61% certified-false). Revisit only if
+an instrument demands it.
+
+**C2 — Depth is recorded, capped at 2.** `Concept`/`ConceptProposal`
+carry `depth` (canonical inputs produce depth 1; compounding an
+invented input produces `input.depth + 1`); operators refuse inputs at
+the cap. The slice-two deliverable is the yield table's new rows:
+verdict rates *per depth*.
+
+**C3 — Compounding agents read the pool, not the environment.**
+Tombstones matter (merged concepts must not compound), so agents that
+need pool state get it explicitly (`Agent.proposeP`); the reflective
+agent interface (`AgentFn`, the rule gate's elaboration type) is
+untouched.
+
+**C4 — Alias credit gets decaying returns per agent**, on top of the
+per-target zeroing. Without it, involution-farming pays: `dual (dual X)`
+aliases back to canonical `X` — a *different* target per `X`, each
+worth full price, mintable mechanically. With the same decay curve as
+refutations, the honest dualizer still wins the derby and the farm
+caps out. (The involution merges themselves are fine — certified
+rediscoveries of `dual_dual` — it is the *pay*, not the fact, that
+must decay.)
+
+**C5 — The grand run.** Everything in one population on the matroid
+domain: template fact agents, the compounding operator agents, the LLM
+concept booth as an agent (pool state as its feedback), the refuter
+(invented-aware, `unfold`-prefixed), trigger (i), the repriced economy.
+Live LLM; not in CI; its ledger and pool are the instruments.
+
+Acceptance tests: **S1** — a depth-2 involution product merges into its
+canonical grandparent with a certificate, and C4's decay demonstrably
+reduces the alias pay below full price (sustained alias-mining declines
+with scale; note the decay is a long-run cap, *not* a small-n ordering —
+a mixed compounder with a higher certified rate may legitimately
+out-earn the depth-1 dualizer per unit of attention, and the first run
+showed exactly that, 5/6 certified vs 6/9); **S2** — no product exceeds
+the depth cap; **S3** — depth-2 yield is nonzero (some depth-2 product
+earns a certified verdict); **S4** — the grand run completes with a
+clean audit and at least one LLM-proposed concept judged.
+S1–S3 are deterministic (`MatroidCompoundRun.lean`); S4 is the grand
+run (`MatroidGrandRun.lean`).
+
 ## Out of scope
 
-Worth repricing (Arc 2); booth prompt design; compounding operators
-(slice two); cross-domain generalization beyond `collectPredicates`;
-deeper iff-graph search.
+Booth prompt design; cross-domain generalization beyond
+`collectPredicates`; deeper iff-graph search; difficulty/depth pricing
+(Arc 3).
