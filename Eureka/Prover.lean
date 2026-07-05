@@ -247,7 +247,7 @@ partial def proveFrom (known : Array KnownLemma) (hyps : Array Expr)
 certificate names every lemma used. This is what proves the facts that sit
 one composition beyond the grounding pool — true, kernel-certified, and
 unmatched by the grounding pass (which is tried first). -/
-def tryCompose (known : Array KnownLemma) (stmt : Expr) :
+def tryCompose (known : Array KnownLemma) (stmt : Expr) (depth : Nat := 2) :
     MetaM (Option (Expr × String)) := do
   let usedRef ← IO.mkRef (#[] : Array Name)
   let r ← attempt <| forallTelescope stmt fun xs body => do
@@ -256,7 +256,7 @@ def tryCompose (known : Array KnownLemma) (stmt : Expr) :
       if ← isProp (← inferType x) then
         hyps := hyps.push x
     if hyps.isEmpty then return none
-    let some pf ← proveFrom known hyps usedRef 2 body | return none
+    let some pf ← proveFrom known hyps usedRef depth body | return none
     return some (← mkLambdaFVars xs pf)
   match r.join with
   | none => return none
@@ -369,10 +369,33 @@ def tryTacticRung (tacSrc : String) (stmt : Expr) : MetaM (Option Expr) := do
       return res
   return r.join
 
+/-- A tactic rung against the *closed* statement — no binder telescope:
+the shape induction tactics need (`intro a; induction a <;> …` names the
+binder itself). Escalation-ladder only; see DESIGN_DEPTH P2. -/
+def tryTacticClosed (tacSrc : String) (stmt : Expr) : MetaM (Option Expr) := do
+  let r ← attempt do
+    match Parser.runParserCategory (← getEnv) `term s!"by {tacSrc}" with
+    | .error _ => pure (none : Option Expr)
+    | .ok stx =>
+      let savedMsgs := (← getThe Core.State).messages
+      let res ← try
+          let e ← Term.TermElabM.run' <| Term.withoutErrToSorry do
+            let e ← Term.elabTerm stx (some stmt)
+            Term.synthesizeSyntheticMVarsNoPostponing
+            instantiateMVars e
+          if e.hasSorry || e.hasMVar then pure none
+          else pure (some e)
+        catch _ => pure none
+      modifyThe Core.State fun st => { st with messages := savedMsgs }
+      pure res
+  return r.join
+
 /-- The hunt: refute first (cheap, and it kills the treadmill of spending
-proof effort on falsehoods), then the proof ladder. -/
-def hunt (known : Array KnownLemma) (corpusLemmas : Array Name) (stmt : Expr) :
-    MetaM Verdict := do
+proof effort on falsehoods), then the proof ladder. `composeDepth` is the
+backward-chaining bound — 2 on the sweep ladder, deeper under
+escalation. -/
+def hunt (known : Array KnownLemma) (corpusLemmas : Array Name) (stmt : Expr)
+    (composeDepth : Nat := 2) : MetaM Verdict := do
   if let some cex ← tryRefute stmt then
     return .refuted cex
   if let some pf ← tryRefl stmt then
@@ -397,7 +420,7 @@ def hunt (known : Array KnownLemma) (corpusLemmas : Array Name) (stmt : Expr) :
     if let some pf ← tryTacticRung
         "simp only [Nat.min_def, Nat.max_def]; split <;> simp_all [Nat.mul_comm]" stmt then
       return .proved pf "split"
-  if let some (pf, via) ← tryCompose known stmt then
+  if let some (pf, via) ← tryCompose known stmt composeDepth then
     return .proved pf s!"composed: {via}"
   -- Mathlib rungs: the tactics parse only when the ambient environment
   -- imports Mathlib, so these self-disable in dependency-free runs.

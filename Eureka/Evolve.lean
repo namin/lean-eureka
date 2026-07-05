@@ -106,6 +106,13 @@ structure EvolveConfig where
   probeCtx : Option ProbeCtx := none
   /-- Canonical probe targets for the identity probe. -/
   canonical : Array ProbeTarget := #[]
+  /-- Escalation (DESIGN_DEPTH P1/P5): open conjectures re-judged per
+  generation with the deep ladder — a system budget, deliberately not
+  worth-ordered. 0 = off. -/
+  escalationBudget : Nat := 0
+  /-- The deep ladder's configuration (widened pool, uncut rungs, deeper
+  composition). Escalation is inert without it. -/
+  deepCtx : Option ProbeCtx := none
 
 /-- The population run's full result: the corpus, the event ledger (the
 economy's instrument), the concept pool, and the final population. -/
@@ -129,6 +136,9 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
   let mut ledger : Ledger := {}
   let mut pool : ConceptPool := seedPool
   let mut dead : Std.HashSet Name := {}
+  -- The open set (P1): conjectures judged open, kept for escalation —
+  -- (conjecture, proposer, escalation tries).
+  let mut opens : Array (Conjecture × Name × Nat) := #[]
   for gen in [1 : cfg.generations + 1] do
     IO.println ""
     IO.println s!"── generation {gen} ──"
@@ -186,6 +196,11 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
               match verdict with
               | .aliasOf t _ _ =>
                 ledger := ledger.record agent.name (.conceptAlias t false)
+                -- The bridge landed on an invented target: its inventor
+                -- is paid attracted credit (P4), prober excluded.
+                if let some cc := pool.find? t then
+                  if cc.origin != agent.name then
+                    ledger := ledger.record cc.origin (.conceptAttracted t)
                 IO.println s!"  ≡ [{agent.name}] {c.name} — {verdict.describe}"
               | .degenerate _ _ =>
                 ledger := ledger.record agent.name .conceptDegenerate
@@ -235,9 +250,10 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
             IO.println s!"  ✗ [{agent.name}] {pretty} — refuted ({cex})"
           | .stillOpen =>
             ledger := ledger.record agent.name .factOpen
+            opens := opens.push (c, agent.name, 0)
             IO.println s!"  ? [{agent.name}] {pretty} — open"
           | .admitted f note =>
-            ledger := ledger.record agent.name .factAdmitted
+            ledger := ledger.record agent.name (.factAdmitted (tierOfRung note))
             IO.println s!"  ✓ [{agent.name}] {pretty} — admitted ({note})"
             -- Facts in invented vocabulary pay the concepts' inventors;
             -- a fact linking two inventions re-probes the pair (D3
@@ -255,6 +271,10 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
                 for (younger, elder) in merges do
                   let origin := ((pool.find? younger).map (·.origin)).getD .anonymous
                   ledger := ledger.record origin (.conceptAlias elder true)
+                  -- The elder endpoint attracted a bridge (P4).
+                  if let some ec := pool.find? elder then
+                    if ec.origin != origin then
+                      ledger := ledger.record ec.origin (.conceptAttracted elder)
                   IO.println s!"  ≡ re-probe merged {younger} into {elder} \
 (delayed credit to {origin})"
           | .refusedAtGate =>
@@ -262,6 +282,65 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
             IO.println s!"  ! [{agent.name}] {pretty} — evidence REFUSED by the gate"
     unless starved.isEmpty do
       IO.println s!"  budget exhausted — starved: {starved.toList}"
+    -- Escalation pass (P1/P5): a system budget, invented-vocabulary
+    -- statements first, at most 2 tries per conjecture. Successes pay the
+    -- original proposer at the escalated tier; failures cost them an
+    -- attention (deep attempts are spent on your behalf).
+    if cfg.escalationBudget > 0 then
+      if let some deep := cfg.deepCtx then
+        let mentionsInv := fun (e : Conjecture × Name × Nat) =>
+          pool.concepts.any fun cc => e.1.stmt.getUsedConstants.contains cc.name
+        -- Breadth before retries: unattempted conjectures first (tries
+        -- ascending), invented-vocabulary first within that — otherwise a
+        -- stuck head-of-queue family starves the rest of the open set.
+        let eligible := (opens.filter fun e => e.2.2 < 2).qsort
+          fun a b => a.2.2 < b.2.2
+        let queue := eligible.filter mentionsInv ++
+          eligible.filter (fun e => !mentionsInv e)
+        let mut attemptedStmts : Array Expr := #[]
+        let mut resolvedStmts : Array Expr := #[]
+        for (c, proposer, _) in queue do
+          if attemptedStmts.size ≥ cfg.escalationBudget then break
+          attemptedStmts := attemptedStmts.push c.stmt
+          let (corpus', outcome) ← escalate deep corpus c cfg.refuter
+          corpus := corpus'
+          match outcome with
+          | .admitted f note =>
+            ledger := ledger.record proposer (.factAdmitted .escalated)
+            resolvedStmts := resolvedStmts.push c.stmt
+            IO.println s!"  ⇧ [{proposer}] {toString (← ppExpr c.stmt)} — \
+admitted ({note})"
+            let used := f.stmt.getUsedConstants
+            let mentioned := pool.concepts.filter fun cc => used.contains cc.name
+            for cc in mentioned do
+              ledger := ledger.record cc.origin (.inventedEdge cc.name)
+            if mentioned.size ≥ 2 then
+              if let some ctx := cfg.probeCtx then
+                let (pool', corpus'', merges) ← reprobeOnFact ctx pool corpus f
+                pool := pool'
+                corpus := corpus''
+                for (younger, elder) in merges do
+                  let origin := ((pool.find? younger).map (·.origin)).getD .anonymous
+                  ledger := ledger.record origin (.conceptAlias elder true)
+                  if let some ec := pool.find? elder then
+                    if ec.origin != origin then
+                      ledger := ledger.record ec.origin (.conceptAttracted elder)
+                  IO.println s!"  ≡ re-probe merged {younger} into {elder} \
+(delayed credit to {origin})"
+          | .refuted cex =>
+            ledger := ledger.record proposer .factRefuted
+            resolvedStmts := resolvedStmts.push c.stmt
+            IO.println s!"  ⇧ [{proposer}] {toString (← ppExpr c.stmt)} — \
+refuted ({cex})"
+          | .stillOpen =>
+            ledger := ledger.record proposer .factOpen
+            IO.println s!"  ⇧ [{proposer}] {toString (← ppExpr c.stmt)} — \
+still open after escalation"
+          | .refusedAtGate => pure ()
+        opens := opens.filterMap fun (c, pr, t) =>
+          if resolvedStmts.any (· == c.stmt) then none
+          else if attemptedStmts.any (· == c.stmt) then some (c, pr, t + 1)
+          else some (c, pr, t)
     -- kill sweep
     let pop' := population
     let children' := fun (a : Name) =>

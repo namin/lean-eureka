@@ -482,6 +482,18 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
       (`dual_MatroidIsSimplePoint ≡ MatroidIsSeriesPoint`, …) — the
       first certified new structure over new vocabulary; the booth's
       kill-then-posthumous-vindication is Arc 3's motivating instrument
+- [x] Depth, Arc 3 (DESIGN_DEPTH.md, REPORT_DEPTH.md): difficulty priced
+      by the proving rung (deep 2.0, escalated 3.0; cheap/standard stay
+      1.0 so the pre-depth instruments hold by construction); attracted
+      credit pays a concept's inventor when bridges land on it —
+      posthumously included; a budgeted escalation pass re-judges the
+      open set with the deep ladder (ambient budget, `Set` lemmas in the
+      pool, composition depth 3, an induction rung, safe canonical
+      transparency) and closes real opens at the escalated tier
+      (`DepthStub.lean` in CI, `MatroidDepthRun.lean`); the
+      pre-registered test flushed out and fixed a beta-redex bug in
+      expansion that had been blinding every head-indexed rung since
+      slice one
 - [x] A refuter for predicate domains, first slice: conjectures
       instantiated at concrete matroids, the negation proved by simp, every
       refutation kernel-gated — 32 of the matroid sweep's 42 opens die, 10
@@ -506,7 +518,9 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
 - [x] Case-split rung (`min`/`max` to `if`s, `split`, close the branches) —
       the standing nonlinear open `min a b * max a b = a * b` is closed,
       CI-visibly (`BoothStub.lean`)
-- [ ] Further prover rungs (induction templates, general nonlinear
-      arithmetic)
+- [ ] Further prover rungs (general nonlinear arithmetic; iff-bridge
+      composition as a proper rung — today worked around by canonical
+      transparency; LLM proof repair as an escalation rung, DESIGN_DEPTH
+      P7). Induction landed as an escalation rung in Arc 3.
 - [ ] Reflective modification of worth/policy *through a gate one level up*
       (today the gates and the worth function are fixed; see lean-keep)

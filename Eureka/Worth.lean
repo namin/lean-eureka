@@ -27,11 +27,33 @@ open Lean
 namespace Eureka
 namespace Runtime
 
+/-- Proof difficulty, classified from the rung that proved the fact
+(DESIGN_DEPTH P3): the ladder is the estimator. `escalated` is stamped by
+the escalation pass, never by the classifier. -/
+inductive Tier where
+  | cheap      -- refl, grounding, symm
+  | standard   -- simp, omega, split, permuted, unfold, chain
+  | deep       -- composed, tauto, aesop
+  | escalated  -- anything proved by the escalation pass
+  deriving BEq, Repr, Inhabited
+
+/-- Classify a rung string (as produced by `hunt`/`probeProve`). -/
+def tierOfRung (rung : String) : Tier :=
+  if rung.startsWith "grounded" || rung.startsWith "refl" ||
+     rung.startsWith "known" then .cheap
+  else if rung.startsWith "escalated" then .escalated
+  else if (rung.splitOn "composed").length > 1 ||
+          (rung.splitOn "tauto").length > 1 ||
+          (rung.splitOn "aesop").length > 1 then .deep
+  else .standard
+
 /-- The event vocabulary. `delayed` on an alias marks credit landing after
 birth (a re-probe merge): it pays, but consumes no attention — the agent
-did not act. -/
+did not act. `conceptAttracted` pays a concept's *inventor* when a
+certified bridge lands on it (DESIGN_DEPTH P4); posthumous pay is real
+pay. -/
 inductive EventKind where
-  | factAdmitted
+  | factAdmitted (tier : Tier)
   | factRefuted
   | factOpen
   /-- A verbatim re-proposal — the mechanical artifact of agents re-firing
@@ -47,6 +69,7 @@ inductive EventKind where
   | conceptNovel
   | conceptRefused
   | inventedEdge (concept : Name)
+  | conceptAttracted (concept : Name)
   deriving BEq, Repr, Inhabited
 
 structure Event where
@@ -68,6 +91,11 @@ derby) is fixed in the design, so adjusting these is an experiment, not a
 redesign. -/
 structure Prices where
   admitted : Float := 1.0
+  /-- Depth pays more, ease does not pay less (DESIGN_DEPTH P3): cheap
+  and standard admissions stay at `admitted`, so the pre-depth
+  instruments hold by construction. -/
+  admittedDeep : Float := 2.0
+  admittedEscalated : Float := 3.0
   refuted : Float := 0.5
   /-- Decaying returns on refutations: the n-th pays
   `refuted / (1 + n/refutedDecay)`. The first few refutations are real
@@ -87,16 +115,19 @@ structure Prices where
   conceptDegenerate : Float := 0.25
   conceptNovel : Float := 0.0
   inventedEdge : Float := 1.0
+  /-- A certified bridge landing on your concept (P4): attention-free. -/
+  attracted : Float := 0.5
   childFactor : Float := 0.5
 
 /-- Does the event consume attention (a judge slot or a birth-gate pass)?
 Proposal-time repeats and dups, delayed credits, and rule births do
 not. -/
 def EventKind.attention : EventKind → Bool
-  | .factAdmitted | .factRefuted | .factOpen | .refusedAtGate => true
+  | .factAdmitted _ | .factRefuted | .factOpen | .refusedAtGate => true
   | .conceptAlias _ delayed => !delayed
   | .conceptDegenerate | .conceptNovel | .conceptRefused => true
-  | .factRepeat | .factDup | .ruleBorn | .inventedEdge _ => false
+  | .factRepeat | .factDup | .ruleBorn | .inventedEdge _
+  | .conceptAttracted _ => false
 
 /-- An agent's own accumulated value — the fold that *is* the pricing:
 alias decay per canonical target, decaying returns on refutations, both
@@ -110,7 +141,11 @@ def Ledger.ownValue (l : Ledger) (p : Prices) (agent : Name) : Float :=
     for e in l.events do
       if e.agent == agent then
         match e.kind with
-        | .factAdmitted => v := v + p.admitted
+        | .factAdmitted tier =>
+          v := v + match tier with
+            | .cheap | .standard => p.admitted
+            | .deep => p.admittedDeep
+            | .escalated => p.admittedEscalated
         | .factRefuted =>
           v := v + p.refuted / (1.0 + refutedSeen / p.refutedDecay)
           refutedSeen := refutedSeen + 1.0
@@ -128,6 +163,7 @@ def Ledger.ownValue (l : Ledger) (p : Prices) (agent : Name) : Float :=
         | .conceptNovel => v := v + p.conceptNovel
         | .conceptRefused => v := v + p.refused
         | .inventedEdge _ => v := v + p.inventedEdge
+        | .conceptAttracted _ => v := v + p.attracted
     return v
 
 def Ledger.attention (l : Ledger) (agent : Name) : Nat :=
@@ -148,6 +184,7 @@ def Ledger.worth (l : Ledger) (p : Prices) (children : Name → Array Name)
 never for pricing. -/
 structure AgentCounts where
   admitted : Nat := 0
+  admittedDeep : Nat := 0   -- deep + escalated, within `admitted`
   refuted : Nat := 0
   opens : Nat := 0
   dups : Nat := 0
@@ -158,12 +195,17 @@ structure AgentCounts where
   conceptsDegenerate : Nat := 0
   conceptsRefused : Nat := 0
   inventedEdges : Nat := 0
+  attracted : Nat := 0
 
 def Ledger.counts (l : Ledger) (agent : Name) : AgentCounts :=
   l.events.foldl (init := {}) fun c e =>
     if e.agent != agent then c else
     match e.kind with
-    | .factAdmitted => { c with admitted := c.admitted + 1 }
+    | .factAdmitted tier =>
+      let c := { c with admitted := c.admitted + 1 }
+      if tier == .deep || tier == .escalated then
+        { c with admittedDeep := c.admittedDeep + 1 }
+      else c
     | .factRefuted => { c with refuted := c.refuted + 1 }
     | .factOpen => { c with opens := c.opens + 1 }
     | .factRepeat => c
@@ -175,6 +217,7 @@ def Ledger.counts (l : Ledger) (agent : Name) : AgentCounts :=
     | .conceptNovel => { c with conceptsNovel := c.conceptsNovel + 1 }
     | .conceptRefused => { c with conceptsRefused := c.conceptsRefused + 1 }
     | .inventedEdge _ => { c with inventedEdges := c.inventedEdges + 1 }
+    | .conceptAttracted _ => { c with attracted := c.attracted + 1 }
 
 def AgentCounts.describe (c : AgentCounts) : String :=
   s!"{c.admitted} admitted, {c.refuted} refuted, {c.dups} merged, \

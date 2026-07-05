@@ -203,12 +203,21 @@ here: `fun n => inventedNs.isPrefixOf n` unfolds invented vocabulary one
 honest level; domains may widen the set. -/
 partial def expandConsts (transparent : Name → Bool) (e : Expr) : MetaM Expr :=
   Meta.transform e (post := fun node => do
-    if let .const n ls := node.getAppFn then
-      if transparent n then
-        if let some ci := (← getEnv).find? n then
-          if let some v := ci.value? then
-            let v := v.instantiateLevelParams ci.levelParams ls
-            return .visit (mkAppN v node.getAppArgs).headBeta
+    -- Rewrite at *application* nodes only: post-order visits the bare
+    -- const first, and rewriting there would leave the enclosing
+    -- application headed by a lambda — a beta-redex that defeats every
+    -- head-indexed rung (compose, known, chain) downstream.
+    if node.isApp then
+      if let .const n ls := node.getAppFn then
+        if transparent n then
+          if let some ci := (← getEnv).find? n then
+            if let some v := ci.value? then
+              let v := v.instantiateLevelParams ci.levelParams ls
+              return .visit (mkAppN v node.getAppArgs).headBeta
+      -- Collapse redexes created by inner rewrites (post-order builds
+      -- applications up around already-substituted heads).
+      if node.getAppFn.isLambda then
+        return .visit node.headBeta
     return .continue node)
 
 private def targetApp (t : ProbeTarget) (xs : Array Expr) : Expr :=
@@ -257,6 +266,9 @@ structure ProbeCtx where
   transparent : Name → Bool := fun n => inventedNs.isPrefixOf n
   extraRungs : Array String := #[]
   probeHeartbeats : Option Nat := none
+  /-- Backward-chaining bound for the compose rung (DESIGN_DEPTH P2):
+  2 on sweep ladders, deeper under escalation. -/
+  composeDepth : Nat := 2
   /-- Probe implication edges at birth. Large enumerations turn this off
   and measure edges in a separate facts phase instead (with a refuter) —
   edge probes are two extra prover ladders per pair. -/
@@ -307,7 +319,7 @@ def probeProve (ctx : ProbeCtx) (corpus : Corpus) (stmt : Expr) :
     let pool := ctx.known ++ (← corpusKnownPool corpus)
     let corpusNames := corpus.facts.map (·.name)
     for (s, tag) in #[(stmt, "folded"), (expanded, "expanded")] do
-      match ← hunt pool corpusNames s with
+      match ← hunt pool corpusNames s ctx.composeDepth with
       | .proved pf rung knownAs =>
         let how := match knownAs with
           | some k => s!"grounded: {k}"
@@ -551,6 +563,36 @@ def judgeConceptFact (ctx : ProbeCtx) (corpus : Corpus) (c : Conjecture)
     | some f =>
       return ({ corpus with facts := corpus.facts.push f }, .admitted f how)
     | none => return (corpus, .refusedAtGate)
+  return (corpus, .stillOpen)
+
+/-- The escalation judge (DESIGN_DEPTH P1/P2): refuter first, then the
+deep ladder — `probeProve` under the deep context (expansion-aware, so it
+handles invented and canonical statements alike; widened pool, uncut
+rungs, deeper composition), then the induction rungs against the closed
+statement. Successes commit through the ordinary gates; the rung note is
+prefixed `escalated:` for the tier classifier. -/
+def escalate (deep : ProbeCtx) (corpus : Corpus) (c : Conjecture)
+    (refuter : Refuter := fun _ => pure none)
+    (inductionRungs : Array String :=
+      #["intro a; induction a <;> simp_all",
+        "intro a; induction a <;> simp_all <;> omega",
+        "intro a b; induction a <;> simp_all <;> omega"]) :
+    MetaM (Corpus × Outcome) := withCurrHeartbeats do
+  if let some (negStmt, pf, witness) ← refuter c.stmt then
+    let nm ← freshName (c.name.appendAfter "_refuted")
+    if let some f ← commitFact { name := nm, stmt := negStmt, proof := pf } then
+      return ({ corpus with facts := corpus.facts.push f }, .refuted witness)
+  if let some (pf, how) ← deep.withBudget <| probeProve deep corpus c.stmt then
+    let nm ← freshName c.name
+    if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+      return ({ corpus with facts := corpus.facts.push f },
+              .admitted f s!"escalated: {how}")
+  for tac in inductionRungs do
+    if let some pf ← tryTacticClosed tac c.stmt then
+      let nm ← freshName c.name
+      if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+        return ({ corpus with facts := corpus.facts.push f },
+                .admitted f "escalated: induction")
   return (corpus, .stillOpen)
 
 /-!

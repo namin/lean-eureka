@@ -30,3 +30,5 @@ jobs:
         run: lake env lean EvolveStub.lean
       - name: worth economy (deterministic)
         run: lake env lean WorthStub.lean
+      - name: depth economy (deterministic)
+        run: lake env lean DepthStub.lean
