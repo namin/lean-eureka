@@ -1,5 +1,6 @@
 import Eureka.Reflect
 import Eureka.Worth
+import Eureka.Prove
 
 /-!
 # The population: worth, budget, birth, death
@@ -113,6 +114,11 @@ structure EvolveConfig where
   /-- The deep ladder's configuration (widened pool, uncut rungs, deeper
   composition). Escalation is inert without it. -/
   deepCtx : Option ProbeCtx := none
+  /-- LLM proof transport (DESIGN_PROVE V1/V4): when present, an open
+  conjecture that survives symbolic escalation gets a repair-loop
+  attempt, metered by `llmProofBudget` calls per generation. -/
+  proofCall : Option (String → IO (Except String String)) := none
+  llmProofBudget : Nat := 0
 
 /-- The population run's full result: the corpus, the event ledger (the
 economy's instrument), the concept pool, and the final population. -/
@@ -299,11 +305,23 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
           eligible.filter (fun e => !mentionsInv e)
         let mut attemptedStmts : Array Expr := #[]
         let mut resolvedStmts : Array Expr := #[]
+        let mut llmLeft := cfg.llmProofBudget
         for (c, proposer, _) in queue do
           if attemptedStmts.size ≥ cfg.escalationBudget then break
           attemptedStmts := attemptedStmts.push c.stmt
-          let (corpus', outcome) ← escalate deep corpus c cfg.refuter
+          let (corpus', outcome') ← escalate deep corpus c cfg.refuter
           corpus := corpus'
+          let mut outcome := outcome'
+          -- The repair rung (V1/V4): after the symbolic ladder, metered.
+          if let some call := cfg.proofCall then
+            if llmLeft > 0 then
+              if let .stillOpen := outcome then
+                llmLeft := llmLeft - 1
+                if let some (pf, _) ← proveByRepair call deep.known c.stmt then
+                  let nm ← freshName c.name
+                  if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+                    corpus := { corpus with facts := corpus.facts.push f }
+                    outcome := .admitted f "escalated: llm-repair"
           match outcome with
           | .admitted f note =>
             ledger := ledger.record proposer (.factAdmitted .escalated)

@@ -5,6 +5,7 @@ import Eureka.Heuristics
 import Eureka.Loop
 import Eureka.Concepts
 import Eureka.Worth
+import Eureka.Prove
 import Eureka.LLM
 import Eureka.Booth
 import Eureka.Reflect

@@ -518,9 +518,21 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
 - [x] Case-split rung (`min`/`max` to `if`s, `split`, close the branches) —
       the standing nonlinear open `min a b * max a b = a * b` is closed,
       CI-visibly (`BoothStub.lean`)
+- [x] Proof search, Arc 4 (DESIGN_PROVE.md, REPORT_PROVE.md): premise
+      retrieval (symbol overlap, DF-filtered), the LLM repair rung
+      (whole script + one error-feedback round) and the tactic-state
+      stepper (goal-state search, model as move generator), both behind
+      the gate with the axiom audit as the only script screening —
+      demonstrated adversarially in CI (`ProveStub.lean`). The live
+      instrument (`MatroidProveRun.lean`): the system's first LLM-proved
+      fact — `IsCircuit X → MIsCyclic M X`, an ∃-statement over an
+      invented concept, closed on the *repair* round — and a null first
+      result for the stepper: interaction did not beat repair on this
+      corpus, reversing the burden of proof the baseline's post-mortem
+      left behind
 - [ ] Further prover rungs (general nonlinear arithmetic; iff-bridge
       composition as a proper rung — today worked around by canonical
-      transparency; LLM proof repair as an escalation rung, DESIGN_DEPTH
-      P7). Induction landed as an escalation rung in Arc 3.
+      transparency). Stepper iteration: richer move sets, bigger
+      budgets, if the comparison instrument is pursued.
 - [ ] Reflective modification of worth/policy *through a gate one level up*
       (today the gates and the worth function are fixed; see lean-keep)

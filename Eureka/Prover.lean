@@ -369,12 +369,70 @@ def tryTacticRung (tacSrc : String) (stmt : Expr) : MetaM (Option Expr) := do
       return res
   return r.join
 
+/-- Premise retrieval, symbol-overlap (DESIGN_PROVE V2): constants that
+appear in more than ~10% of the pool carry no signal and are ignored
+(`Nat`, `Eq`, arithmetic classes); lemmas are ranked by informative
+overlap normalized by their own size, so specific lemmas beat sprawling
+ones at equal overlap. Dumb on purpose; embeddings are the recorded
+upgrade path. -/
+def retrievePremises (known : Array KnownLemma) (goal : Expr) (k : Nat := 12) :
+    MetaM (Array KnownLemma) := do
+  let mut freq : Std.HashMap Name Nat := {}
+  for l in known do
+    let mut seen : Array Name := #[]
+    for c in l.type.getUsedConstants do
+      unless seen.contains c do
+        seen := seen.push c
+        freq := freq.insert c ((freq.getD c 0) + 1)
+  let cutoff := known.size / 10 + 1
+  let goalConsts := goal.getUsedConstants.filter fun c =>
+    (freq.getD c 0) ≤ cutoff
+  if goalConsts.isEmpty then return #[]
+  let scored := known.filterMap fun l =>
+    let lemConsts := l.type.getUsedConstants
+    let overlap := goalConsts.foldl
+      (fun n c => if lemConsts.contains c then n + 1 else n) 0
+    if overlap == 0 then none
+    else some (l, overlap.toFloat / (lemConsts.size.toFloat + 1.0))
+  let sorted := scored.qsort fun a b => a.2 > b.2
+  return (sorted.extract 0 (min k sorted.size)).map (·.1)
+
+/-- Wrap a (possibly multi-line) tactic script as a parseable `by`-block:
+every line uniformly indented under the `by`, so column-0 continuation
+lines — the way models write scripts — parse as one sequence. -/
+def asByBlock (tacSrc : String) : String :=
+  "by\n" ++ String.intercalate "\n"
+    ((tacSrc.splitOn "\n").map ("  " ++ ·))
+
+/-- `tryTacticClosed`, but failures return the error text — the repair
+loop's food (DESIGN_PROVE V1). -/
+def tryTacticClosedErr (tacSrc : String) (stmt : Expr) :
+    MetaM (Except String Expr) := do
+  match Parser.runParserCategory (← getEnv) `term (asByBlock tacSrc) with
+  | .error e => return .error s!"parse error: {e}"
+  | .ok stx =>
+    let savedMsgs := (← getThe Core.State).messages
+    let r ← tryCatchRuntimeEx
+      (try
+        let e ← Term.TermElabM.run' <| Term.withoutErrToSorry do
+          let e ← Term.elabTerm stx (some stmt)
+          Term.synthesizeSyntheticMVarsNoPostponing
+          instantiateMVars e
+        if e.hasSorry then pure (.error "the proof contains sorry")
+        else if e.hasMVar then pure (.error "unsolved goals remain")
+        else pure (.ok e)
+      catch ex => do
+        pure (.error (← ex.toMessageData.toString)))
+      (fun _ => pure (.error "runtime blowup (heartbeats/recursion)"))
+    modifyThe Core.State fun st => { st with messages := savedMsgs }
+    return r
+
 /-- A tactic rung against the *closed* statement — no binder telescope:
 the shape induction tactics need (`intro a; induction a <;> …` names the
 binder itself). Escalation-ladder only; see DESIGN_DEPTH P2. -/
 def tryTacticClosed (tacSrc : String) (stmt : Expr) : MetaM (Option Expr) := do
   let r ← attempt do
-    match Parser.runParserCategory (← getEnv) `term s!"by {tacSrc}" with
+    match Parser.runParserCategory (← getEnv) `term (asByBlock tacSrc) with
     | .error _ => pure (none : Option Expr)
     | .ok stx =>
       let savedMsgs := (← getThe Core.State).messages

@@ -32,3 +32,5 @@ jobs:
         run: lake env lean WorthStub.lean
       - name: depth economy (deterministic)
         run: lake env lean DepthStub.lean
+      - name: proof search (deterministic)
+        run: lake env lean ProveStub.lean
