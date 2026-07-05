@@ -92,6 +92,45 @@ def singletonAgent (preds : Array PredInfo) : Agent where
     return out
 
 /-!
+## Matroid-shaped generative operators (DESIGN_INVENT D5)
+
+Dualization and singleton-lift are domain-shaped; they live here. The
+generic operators (conjunction, negated-conjunct) are in
+`Eureka.Concepts`.
+-/
+
+/-- Dualization: `P M X ↦ P M✶ X`, either shape. -/
+def mkDualizeProposal (t : ProbeTarget) : MetaM (Option ConceptProposal) := do
+  let r ← attempt <| forallTelescope t.type fun xs body => do
+    unless body == .sort .zero do return none
+    unless xs.size == 3 do return none
+    let dualM ← mkAppM ``Matroid.dual #[xs[1]!]
+    let app := mkAppN (mkConst t.name t.levels) #[xs[0]!, dualM, xs[2]!]
+    let value ← mkLambdaFVars xs app
+    let type ← mkForallFVars xs (.sort .zero)
+    return some { name := .mkSimple s!"dual_{t.name.getString!}",
+                  type, value, origin := `dualize }
+  return r.join
+
+/-- Singleton-lift: a set predicate becomes an element predicate,
+`P M X ↦ fun M e => P M {e}` — the element↔set bridge as an operator. -/
+def mkSingletonLiftProposal (t : ProbeTarget) : MetaM (Option ConceptProposal) := do
+  let r ← attempt <| forallTelescope t.type fun xs body => do
+    unless body == .sort .zero do return none
+    unless xs.size == 3 do return none
+    let α := xs[0]!
+    let xTy ← inferType xs[2]!
+    unless xTy.getAppFn.constName? == some ``Set do return none
+    withLocalDeclD `e α fun e => do
+      let sing ← mkSingleton α e
+      let app := mkAppN (mkConst t.name t.levels) #[α, xs[1]!, sing]
+      let value ← mkLambdaFVars #[α, xs[1]!, e] app
+      let type ← mkForallFVars #[α, xs[1]!, e] (.sort .zero)
+      return some { name := .mkSimple s!"elem_{t.name.getString!}",
+                    type, value, origin := `singletonLift }
+  return r.join
+
+/-!
 ## The refuter kit
 
 Concrete witnesses for `refuteByInstances`, as named definitions so the

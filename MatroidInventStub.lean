@@ -42,20 +42,6 @@ def cand_is_cocircuit_def {α : Type} (M : Matroid α) (X : Set α) : Prop :=
 def cand_dep_invented {α : Type} (M : Matroid α) (X : Set α) : Prop :=
   X ⊆ M.E ∧ ¬ M.Indep X
 
-/-- The matroid-shaped generative operator (DESIGN_INVENT D5): dualization,
-`P M X ↦ P M✶ X`. Domain-shaped operators live with the domain. -/
-def mkDualizeProposal (t : ProbeTarget) : MetaM (Option ConceptProposal) := do
-  let r ← attempt <| forallTelescope t.type fun xs body => do
-    unless body == .sort .zero do return none
-    unless xs.size == 3 do return none
-    let dualM ← mkAppM ``Matroid.dual #[xs[1]!]
-    let app := mkAppN (mkConst t.name t.levels) #[xs[0]!, dualM, xs[2]!]
-    let value ← mkLambdaFVars xs app
-    let type ← mkForallFVars xs (.sort .zero)
-    return some { name := .mkSimple s!"dual_{t.name.getString!}",
-                  type, value, origin := `dualize }
-  return r.join
-
 def proposalFromDef (base : Name) (defn : Name) : MetaM ConceptProposal := do
   let ci ← getConstInfo defn
   return { name := base, type := ci.type, value := ci.value!, origin := base }

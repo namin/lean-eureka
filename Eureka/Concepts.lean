@@ -239,11 +239,35 @@ def mkTrivStmt (c : ProbeTarget) (universal : Bool) : MetaM (Option Expr) := do
 
 /-- Probe context: the library grounding pool, the transparency set for
 expanded forms, and domain-supplied tactic rungs (e.g. `tauto`, `aesop`
-when Mathlib is ambient — they self-disable elsewhere, as in `hunt`). -/
+when Mathlib is ambient — they self-disable elsewhere, as in `hunt`).
+
+`probeHeartbeats` caps each probe *attempt*'s budget (in `maxHeartbeats`
+option units; `none` = ambient). Large enumerations set it low: the cheap
+rungs (refl, omega, permuted simp, chain) decide well under the cap, and
+what a curtailed heavy rung would have certified stays novel-so-far —
+honest, and re-probeable under D3's standing obligation. -/
 structure ProbeCtx where
   known : Array KnownLemma
   transparent : Name → Bool := fun n => inventedNs.isPrefixOf n
   extraRungs : Array String := #[]
+  probeHeartbeats : Option Nat := none
+  /-- Probe implication edges at birth. Large enumerations turn this off
+  and measure edges in a separate facts phase instead (with a refuter) —
+  edge probes are two extra prover ladders per pair. -/
+  probeEdges : Bool := true
+  /-- Cap how many of the most recent live inventions a newborn is alias-
+  probed against (`none` = all). The long tail belongs to the budgeted
+  sweep — that is D3's standing obligation, not a silent cap; runs that
+  set a window log the policy. -/
+  inventedTargetWindow : Option Nat := none
+
+/-- Run probe work under the context's per-attempt budget. Inner `attempt`s
+re-baseline the counter (`withCurrHeartbeats`); the budget itself comes
+from the option this sets. -/
+def ProbeCtx.withBudget {α : Type} (ctx : ProbeCtx) (x : MetaM α) : MetaM α :=
+  match ctx.probeHeartbeats with
+  | some n => withOptions (fun o => o.set `maxHeartbeats n) x
+  | none => x
 
 /-- Corpus facts as a composition pool: discoveries prove discoveries, so
 the probe's power grows with the corpus (why "novel" is only ever
@@ -307,8 +331,8 @@ transitive chain through the library, then the two directions separately
 (both certified → alias by `Iff.intro`; one → a specializes/generalizes
 edge). Caller commits whatever comes back; nothing here touches the
 corpus or the pool. -/
-def probePair (ctx : ProbeCtx) (corpus : Corpus) (c t : ProbeTarget) :
-    MetaM PairResult := do
+def probePair (ctx : ProbeCtx) (corpus : Corpus) (c t : ProbeTarget)
+    (edges : Bool := true) : MetaM PairResult := do
   let r ← attempt do
     let some iffStmt ← mkIffStmt c t
       | return PairResult.edges none none
@@ -330,7 +354,9 @@ def probePair (ctx : ProbeCtx) (corpus : Corpus) (c t : ProbeTarget) :
       return (none : Option Expr)
     if let some (pf, bridge) ← tryKnownChain ctx.known iffStmt subProve then
       return PairResult.isAlias pf s!"chained via {bridge}"
-    -- Directions.
+    -- Directions (two more prover ladders — skipped when the caller only
+    -- wants aliases).
+    unless edges do return PairResult.edges none none
     let some fwdStmt ← mkImplStmt c t
       | return PairResult.edges none none
     let some bwdStmt ← mkImplStmt t c
@@ -380,19 +406,28 @@ def probeConcept (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
   -- ⊤/⊥: an alias to a trivial predicate, caught by the same machinery.
   for universal in [true, false] do
     if let some stmt ← mkTrivStmt cT universal then
-      if let some (pf, _) ← probeProve ctx corpus stmt then
+      if let some (pf, _) ← ctx.withBudget <| probeProve ctx corpus stmt then
         let tag := if universal then "univ" else "empty"
         if let some (corpus', f) ← commitProbeFact corpus s!"{short}_{tag}" stmt pf then
           return (pool.merge c.name (if universal then `True else `False),
                   corpus', .degenerate universal f)
-  -- Alias / edges against canonical targets first, then earlier inventions.
-  let inventedTs := (pool.live.filter (·.name != c.name)).map (·.toTarget)
+  -- Alias / edges against canonical targets first, then earlier inventions
+  -- (the most recent window when one is configured; the tail is the
+  -- sweep's job).
+  let inventedAll := (pool.live.filter (·.name != c.name)).map (·.toTarget)
+  let inventedTs := match ctx.inventedTargetWindow with
+    | some k =>
+      if inventedAll.size > k then
+        inventedAll.extract (inventedAll.size - k) inventedAll.size
+      else inventedAll
+    | none => inventedAll
   let mut spec : Array (Name × Fact) := #[]
   let mut genl : Array (Name × Fact) := #[]
   let mut corpus := corpus
   for t in canonical ++ inventedTs do
     unless ← targetsCompatible cT t do continue
-    let r ← withCurrHeartbeats <| probePair ctx corpus cT t
+    let r ← ctx.withBudget <| withCurrHeartbeats <|
+      probePair ctx corpus cT t ctx.probeEdges
     match r with
     | .isAlias pf how =>
       let some iffStmt ← mkIffStmt cT t | continue
@@ -436,8 +471,8 @@ def reprobeOnFact (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
       let younger := mentioned[j]!
       unless pool.isLive elder.name && pool.isLive younger.name do continue
       unless ← targetsCompatible younger.toTarget elder.toTarget do continue
-      let r ← withCurrHeartbeats <|
-        probePair ctx corpus younger.toTarget elder.toTarget
+      let r ← ctx.withBudget <| withCurrHeartbeats <|
+        probePair ctx corpus younger.toTarget elder.toTarget (edges := false)
       if let .isAlias pf _ := r then
         let some iffStmt ← mkIffStmt younger.toTarget elder.toTarget | continue
         let base := s!"{younger.name.getString!}_alias_{elder.name.getString!}"
@@ -480,7 +515,8 @@ def sweepReprobe (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
     if (pool.find? t.name).any (·.mergedInto.isSome) then continue
     unless ← targetsCompatible c.toTarget t do continue
     spent := spent + 1
-    let r ← withCurrHeartbeats <| probePair ctx corpus c.toTarget t
+    let r ← ctx.withBudget <| withCurrHeartbeats <|
+      probePair ctx corpus c.toTarget t (edges := false)
     if let .isAlias pf _ := r then
       let some iffStmt ← mkIffStmt c.toTarget t | continue
       let base := s!"{c.name.getString!}_alias_{t.name.getString!}"
