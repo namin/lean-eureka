@@ -530,9 +530,20 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
       result for the stepper: interaction did not beat repair on this
       corpus, reversing the burden of proof the baseline's post-mortem
       left behind
+- [x] The graph domain — the generalization arc (DESIGN_GRAPH.md,
+      REPORT_GRAPH.md): the whole stack on `SimpleGraph` with ~120
+      lines of per-domain surface (complement operator, witness kit,
+      agent wrappers). The matroid record rhymes exactly:
+      `compl_IsClique ≡ IsIndepSet` grounded at birth, depth-2
+      `compl_compl_X ≡ X` involutions certified, 5 kit refutations,
+      audit clean; one hidden assumption surfaced and recorded
+      (operator values must be built by elaboration — instance-derived
+      structure is invisible to raw `mkAppM`). Verdict: a discovery
+      system, not a matroid program
 - [ ] Further prover rungs (general nonlinear arithmetic; iff-bridge
       composition as a proper rung — today worked around by canonical
       transparency). Stepper iteration: richer move sets, bigger
-      budgets, if the comparison instrument is pursued.
+      budgets, if the comparison instrument is pursued. Graph booth
+      (`GraphGrandRun`) as the live extension of the generalization arc.
 - [ ] Reflective modification of worth/policy *through a gate one level up*
       (today the gates and the worth function are fixed; see lean-keep)
