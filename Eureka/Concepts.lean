@@ -544,6 +544,35 @@ def sweepReprobe (ctx : ProbeCtx) (pool : ConceptPool) (corpus : Corpus)
         merges := merges.push (c.name, t.name)
   return (pool, corpus, merges, k)
 
+/-- The invented names a statement's refuter must `unfold`, *transitively
+closed*: a depth-2 concept's body mentions its depth-1 parent, which
+simp cannot unfold either (no equation lemmas for gate-declared defs).
+Found by the benchmark arc — a statement mentioning only the lift was
+irrefutable because its parent stayed folded. -/
+def inventedUnfoldNames (stmt : Expr) : MetaM (Array Name) := do
+  let mut out : Array Name := #[]
+  let mut frontier := stmt.getUsedConstants.filter (inventedNs.isPrefixOf ·)
+  while !frontier.isEmpty do
+    let mut next : Array Name := #[]
+    for n in frontier do
+      unless out.contains n do
+        out := out.push n
+        if let some ci := (← getEnv).find? n then
+          if let some v := ci.value? then
+            for m in v.getUsedConstants do
+              if inventedNs.isPrefixOf m && !out.contains m &&
+                  !next.contains m then
+                next := next.push m
+    frontier := next
+  return out
+
+/-- The `unfold` prefix for invented-aware refuters, from the transitive
+closure; empty when the statement mentions no invented vocabulary. -/
+def inventedUnfoldPre (stmt : Expr) : MetaM String := do
+  let ns ← inventedUnfoldNames stmt
+  if ns.isEmpty then return ""
+  return s!"unfold {String.intercalate " " (ns.map toString).toList}; "
+
 /-- Judge a conjecture phrased in invented vocabulary: `judge`'s hunt sees
 invented constants as opaque, so the prover here is `probeProve` (folded +
 delta-expanded forms) and the proof commits against the folded statement.

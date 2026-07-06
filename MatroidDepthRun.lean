@@ -67,13 +67,7 @@ and_left_comm]"]
       extraRungs := cheapRungs ++ #["aesop",
         "simp [Matroid.dep_iff, Set.singleton_subset_iff]"]
       composeDepth := 3 }
-  let refuter : Refuter := fun stmt => do
-    let usedInv := (stmt.getUsedConstants.filter
-      (inventedNs.isPrefixOf ·)).map toString
-    let pre := if usedInv.isEmpty then "" else
-      s!"unfold {String.intercalate " " usedInv.toList}; "
-    refuteByInstances matroidRefuterSimpArgs (mkConst ``Nat)
-      matroidInstances stmt (pre := pre)
+  let refuter : Refuter := matroidRefuterInv
   let r ← evolveWith
     [dualizerAgent canonical, compounderAgent, inventedImplAgent canonical]
     { generations := 4, judgeBudget := 25, perAgentCap := 20,

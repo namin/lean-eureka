@@ -41,13 +41,7 @@ and_left_comm]"]
       inventedTargetWindow := some 12 }
   -- The refuter, invented-aware: unfold-prefixed when the statement
   -- mentions invented vocabulary (simp cannot unfold gate-declared defs).
-  let refuter : Refuter := fun stmt => do
-    let usedInv := (stmt.getUsedConstants.filter
-      (inventedNs.isPrefixOf ·)).map toString
-    let pre := if usedInv.isEmpty then "" else
-      s!"unfold {String.intercalate " " usedInv.toList}; "
-    refuteByInstances matroidRefuterSimpArgs (mkConst ``Nat)
-      matroidInstances stmt (pre := pre)
+  let refuter : Refuter := matroidRefuterInv
   -- The LLM concept booth as an agent.
   let elemTy ← withLocalDeclD `α (mkSort (.succ .zero)) fun α =>
     withLocalDeclD `M (mkApp (mkConst `Matroid [.zero]) α) fun M =>

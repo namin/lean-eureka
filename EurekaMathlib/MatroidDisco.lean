@@ -224,6 +224,12 @@ def mFree : Matroid ℕ := Matroid.freeOn {0}
 def mLoopy : Matroid ℕ := Matroid.loopyOn {0}
 def mUB : Matroid ℕ := Matroid.uniqueBaseOn {0} {0, 1}
 def mEmpty : Matroid ℕ := Matroid.emptyOn ℕ
+-- Witnesses with structure above rank 1 (DESIGN_RESOLVE K1): two-element
+-- free and loopy matroids, and the reversed unique-base — the shapes
+-- that separate dual-base and coloop statements the rank-1 kit cannot.
+def mFree2 : Matroid ℕ := Matroid.freeOn {0, 1}
+def mLoopy2 : Matroid ℕ := Matroid.loopyOn {0, 1}
+def mUBr : Matroid ℕ := Matroid.uniqueBaseOn {1} {0, 1}
 def sEmpty : Set ℕ := ∅
 def s0 : Set ℕ := {0}
 def s1 : Set ℕ := {1}
@@ -235,11 +241,45 @@ theorem ubOn_isBase_iff {B : Set ℕ} :
     (Matroid.uniqueBaseOn ({0} : Set ℕ) {0, 1}).IsBase B ↔ B = {0} :=
   Matroid.uniqueBaseOn_isBase_iff (by simp)
 
+theorem ubOnr_isBase_iff {B : Set ℕ} :
+    (Matroid.uniqueBaseOn ({1} : Set ℕ) {0, 1}).IsBase B ↔ B = {1} :=
+  Matroid.uniqueBaseOn_isBase_iff (by simp)
+
+/-- The base characterizations bottom out in set-literal disequalities,
+which bare simp cannot decide; hand them over. -/
+theorem s0_ne_s01 : ({0} : Set ℕ) ≠ ({0, 1} : Set ℕ) := fun h => by
+  have h1 : (1 : ℕ) ∈ ({0, 1} : Set ℕ) := by simp
+  rw [← h] at h1; simp at h1
+theorem s1_ne_s01 : ({1} : Set ℕ) ≠ ({0, 1} : Set ℕ) := fun h => by
+  have h1 : (0 : ℕ) ∈ ({0, 1} : Set ℕ) := by simp
+  rw [← h] at h1; simp at h1
+theorem s01_ne_s0 : ({0, 1} : Set ℕ) ≠ ({0} : Set ℕ) := (s0_ne_s01 ·.symm)
+theorem s01_ne_s1 : ({0, 1} : Set ℕ) ≠ ({1} : Set ℕ) := (s1_ne_s01 ·.symm)
+theorem s0_ne_s1 : ({0} : Set ℕ) ≠ ({1} : Set ℕ) := fun h => by
+  have h1 : (0 : ℕ) ∈ ({0} : Set ℕ) := by simp
+  rw [h] at h1; simp at h1
+theorem s1_ne_s0 : ({1} : Set ℕ) ≠ ({0} : Set ℕ) := (s0_ne_s1 ·.symm)
+theorem sEmpty_ne_s0 : (∅ : Set ℕ) ≠ ({0} : Set ℕ) := fun h => by
+  have h1 : (0 : ℕ) ∈ ({0} : Set ℕ) := by simp
+  rw [← h] at h1; simp at h1
+theorem s0_ne_sEmpty : ({0} : Set ℕ) ≠ (∅ : Set ℕ) := (sEmpty_ne_s0 ·.symm)
+theorem sEmpty_ne_s01 : (∅ : Set ℕ) ≠ ({0, 1} : Set ℕ) := fun h => by
+  have h1 : (0 : ℕ) ∈ ({0, 1} : Set ℕ) := by simp
+  rw [← h] at h1; simp at h1
+theorem s01_ne_sEmpty : ({0, 1} : Set ℕ) ≠ (∅ : Set ℕ) := (sEmpty_ne_s01 ·.symm)
+
 /-- The refuter's simp vocabulary: unfold the witnesses, characterize the
 predicates at the concrete constructions, reduce duality and singletons. -/
 def matroidRefuterSimpArgs : Array String := #[
   "mFree", "mLoopy", "mUB", "mEmpty", "sEmpty", "s0", "s1", "s01",
-  "ubOn_isBase_iff",
+  "mFree2", "mLoopy2", "mUBr",
+  "ubOn_isBase_iff", "ubOnr_isBase_iff",
+  "s0_ne_s01", "s1_ne_s01", "s01_ne_s0", "s01_ne_s1", "s0_ne_s1",
+  "s1_ne_s0", "sEmpty_ne_s0", "s0_ne_sEmpty", "sEmpty_ne_s01",
+  "s01_ne_sEmpty",
+  "Matroid.freeOn_isBase_iff", "Matroid.loopyOn_isBase_iff",
+  "Matroid.freeOn_dual_eq", "Matroid.loopyOn_dual_eq",
+  "Matroid.uniqueBaseOn_dual_eq",
   "Matroid.dep_iff", "Matroid.coindep_def", "Matroid.isCocircuit_def",
   "Matroid.loopyOn_isLoop_iff", "Matroid.uniqueBaseOn_isLoop_iff",
   "← Matroid.singleton_dep",
@@ -262,11 +302,27 @@ def matroidInstances : Array (Expr × Expr × String) := #[
   (mkConst ``mLoopy, mkNatLit 0,       "M := loopyOn {0}, e := 0"),
   (mkConst ``mUB,    mkNatLit 0,       "M := uniqueBaseOn {0} {0,1}, e := 0"),
   (mkConst ``mUB,    mkNatLit 1,       "M := uniqueBaseOn {0} {0,1}, e := 1"),
-  (mkConst ``mEmpty, mkNatLit 0,       "M := emptyOn ℕ, e := 0")]
+  (mkConst ``mEmpty, mkNatLit 0,       "M := emptyOn ℕ, e := 0"),
+  (mkConst ``mFree2,  mkConst ``s0,    "M := freeOn {0,1}, X := {0}"),
+  (mkConst ``mFree2,  mkConst ``s01,   "M := freeOn {0,1}, X := {0,1}"),
+  (mkConst ``mLoopy2, mkConst ``s01,   "M := loopyOn {0,1}, X := {0,1}"),
+  (mkConst ``mUBr,    mkConst ``s0,    "M := uniqueBaseOn {1} {0,1}, X := {0}"),
+  (mkConst ``mUBr,    mkConst ``s1,    "M := uniqueBaseOn {1} {0,1}, X := {1}"),
+  (mkConst ``mFree2,  mkNatLit 0,      "M := freeOn {0,1}, e := 0"),
+  (mkConst ``mLoopy2, mkNatLit 0,      "M := loopyOn {0,1}, e := 0"),
+  (mkConst ``mUBr,    mkNatLit 0,      "M := uniqueBaseOn {1} {0,1}, e := 0"),
+  (mkConst ``mUBr,    mkNatLit 1,      "M := uniqueBaseOn {1} {0,1}, e := 1")]
 
 /-- The assembled matroid refuter, ready for `judge` / `EvolveConfig`. -/
 def matroidRefuter : Refuter :=
   refuteByInstances matroidRefuterSimpArgs (mkConst ``Nat) matroidInstances
+
+/-- The invented-aware matroid refuter: `unfold` prefix transitively
+closed over invented vocabulary (depth-2 concepts unfold their
+parents). -/
+def matroidRefuterInv : Refuter := fun stmt => do
+  refuteByInstances matroidRefuterSimpArgs (mkConst ``Nat)
+    matroidInstances stmt (pre := ← inventedUnfoldPre stmt)
 
 /-- Booth prompt for the matroid domain. -/
 def renderMatroidPrompt (preds : Array PredInfo)

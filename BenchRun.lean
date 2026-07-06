@@ -10,7 +10,7 @@ corpus drift loud instead of silent. The symbolic ladders then run over
 the corpus and print the closure table; `REPORT_BENCH.md` records the
 baseline, and future prover work moves the numbers or it didn't happen.
 
-Corpus version: **1** (pins below). A machinery change that shifts the
+Corpus version: **2** (pins below; full-coverage generator). A machinery change that shifts the
 regenerated corpus must bump the version and re-baseline the report.
 
 Deterministic; no LLM. Run with `lake env lean BenchRun.lean` (not in
@@ -57,23 +57,19 @@ and_left_comm]"]
   let mCtx : ProbeCtx :=
     { known := mKnown, extraRungs := mRungs, probeHeartbeats := some 5000
       probeEdges := false, inventedTargetWindow := some 12 }
-  let mRefuter : Refuter := fun stmt => do
-    let usedInv := (stmt.getUsedConstants.filter
-      (inventedNs.isPrefixOf ·)).map toString
-    let pre := if usedInv.isEmpty then "" else
-      s!"unfold {String.intercalate " " usedInv.toList}; "
-    refuteByInstances matroidRefuterSimpArgs (mkConst ``Nat)
-      matroidInstances stmt (pre := pre)
+  let mRefuter : Refuter := matroidRefuterInv
   let mr ← evolveWith
     [dualizerAgent mCanonical, compounderAgent, inventedImplAgent mCanonical]
-    { generations := 3, judgeBudget := 25, perAgentCap := 20,
+    -- Full coverage (v2): every proposed pair judged — the corpus is
+    -- the complete residue, immune to enumeration-rotation sensitivity.
+    { generations := 3, judgeBudget := 300, perAgentCap := 200,
       knownPrefixes := [`Matroid], refuter := mRefuter,
       probeCtx := some mCtx, canonical := mCanonical }
   IO.println ""
   IO.println s!"matroid corpus: {mr.opens.size} opens"
   -- The pin (version 1).
-  unless mr.opens.size == 16 do
-    throwError "matroid corpus drift: expected 16 opens, got \
+  unless mr.opens.size == 14 do
+    throwError "matroid corpus drift: expected 14 opens, got \
 {mr.opens.size} — bump the corpus version and re-baseline"
   unless mr.opens.any (fun e =>
       e.1.stmt.getUsedConstants.contains (inventedNs ++ `dual_IsRkFinite)) do
@@ -96,13 +92,13 @@ and_comm, and_assoc, and_left_comm]"]
   let gr ← evolveWith
     [complementerAgent gCanonical, graphCompounderAgent,
      inventedImplAgent gCanonical]
-    { generations := 3, judgeBudget := 20, perAgentCap := 20,
+    { generations := 3, judgeBudget := 300, perAgentCap := 200,
       knownPrefixes := [`SimpleGraph], refuter := graphRefuter,
       probeCtx := some gCtx, canonical := gCanonical }
   IO.println ""
   IO.println s!"graph corpus: {gr.opens.size} opens"
-  unless gr.opens.size == 13 do
-    throwError "graph corpus drift: expected 13 opens, got \
+  unless gr.opens.size == 17 do
+    throwError "graph corpus drift: expected 17 opens, got \
 {gr.opens.size} — bump the corpus version and re-baseline"
   unless gr.opens.any (fun e =>
       e.1.stmt.getUsedConstants.contains (inventedNs ++ `compl_IsVertexCover)) do
@@ -137,4 +133,4 @@ and_comm, and_assoc, and_left_comm]"]
       extraRungs := gRungs ++ #["aesop"], composeDepth := 3 }
   benchLadders "graph" gDeep graphRefuter gr.corpus gr.opens
   IO.println ""
-  IO.println "benchmark: corpus v1 pinned and measured"
+  IO.println "benchmark: corpus v2 pinned and measured"

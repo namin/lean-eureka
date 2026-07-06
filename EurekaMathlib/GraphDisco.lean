@@ -77,18 +77,28 @@ def graphCompounderAgent : Agent where
 
 def gBot : SimpleGraph ℕ := ⊥
 def gTop : SimpleGraph ℕ := ⊤
+-- Structured witnesses (DESIGN_RESOLVE K2): a single edge and a path,
+-- the shapes `⊥`/`⊤` cannot separate.
+def gEdge : SimpleGraph ℕ := SimpleGraph.fromRel fun a b => a = 0 ∧ b = 1
+def gPath3 : SimpleGraph ℕ :=
+  SimpleGraph.fromRel fun a b => (a = 0 ∧ b = 1) ∨ (a = 1 ∧ b = 2)
 def gsEmpty : Set ℕ := ∅
 def gs0 : Set ℕ := {0}
 def gs01 : Set ℕ := {0, 1}
+def gs02 : Set ℕ := {0, 2}
 
 /-- The refuter's simp vocabulary: unfold the witnesses, characterize
 cliques/independent sets via pairwise over the tiny concrete sets, and
 reduce adjacency at `⊥`/`⊤`. -/
 def graphRefuterSimpArgs : Array String := #[
-  "gBot", "gTop", "gsEmpty", "gs0", "gs01",
+  "gBot", "gTop", "gEdge", "gPath3",
+  "gsEmpty", "gs0", "gs01", "gs02",
   "SimpleGraph.isClique_iff", "SimpleGraph.isIndepSet_iff",
   "Set.pairwise_pair", "Set.pairwise_singleton", "Set.pairwise_empty",
   "SimpleGraph.bot_adj", "SimpleGraph.top_adj",
+  "SimpleGraph.fromRel_adj",
+  "SimpleGraph.IsVertexCover", "SimpleGraph.IsIsolated",
+  "SimpleGraph.IsTutteViolator",
   "SimpleGraph.isClique_compl", "SimpleGraph.isIndepSet_compl",
   "not_imp"]
 
@@ -98,16 +108,19 @@ def graphInstances : Array (Expr × Expr × String) := #[
   (mkConst ``gBot, mkConst ``gs01,   "G := ⊥, X := {0,1}"),
   (mkConst ``gTop, mkConst ``gsEmpty, "G := ⊤, X := ∅"),
   (mkConst ``gTop, mkConst ``gs0,    "G := ⊤, X := {0}"),
-  (mkConst ``gTop, mkConst ``gs01,   "G := ⊤, X := {0,1}")]
+  (mkConst ``gTop, mkConst ``gs01,   "G := ⊤, X := {0,1}"),
+  (mkConst ``gEdge, mkConst ``gs01,  "G := edge 0-1, X := {0,1}"),
+  (mkConst ``gEdge, mkConst ``gs0,   "G := edge 0-1, X := {0}"),
+  (mkConst ``gPath3, mkConst ``gs01, "G := path 0-1-2, X := {0,1}"),
+  (mkConst ``gPath3, mkConst ``gs02, "G := path 0-1-2, X := {0,2}"),
+  (mkConst ``gEdge, mkNatLit 0,      "G := edge 0-1, v := 0"),
+  (mkConst ``gPath3, mkNatLit 1,     "G := path 0-1-2, v := 1"),
+  (mkConst ``gPath3, mkNatLit 0,     "G := path 0-1-2, v := 0")]
 
 /-- The assembled graph refuter, invented-aware (`unfold`-prefixed). -/
 def graphRefuter : Refuter := fun stmt => do
-  let usedInv := (stmt.getUsedConstants.filter
-    (inventedNs.isPrefixOf ·)).map toString
-  let pre := if usedInv.isEmpty then "" else
-    s!"unfold {String.intercalate " " usedInv.toList}; "
   refuteByInstances graphRefuterSimpArgs (mkConst ``Nat)
-    graphInstances stmt (pre := pre)
+    graphInstances stmt (pre := ← inventedUnfoldPre stmt)
 
 end Runtime
 end Eureka

@@ -96,13 +96,7 @@ and_left_comm]"]
       composeDepth := 3 }
   let call ← Eureka.LLM.withTranscript "transcripts/matroid-prove.jsonl" "matroid-prove"
     (Eureka.LLM.invoke Eureka.LLM.defaultConfig)
-  let refuter : Refuter := fun stmt => do
-    let usedInv := (stmt.getUsedConstants.filter
-      (inventedNs.isPrefixOf ·)).map toString
-    let pre := if usedInv.isEmpty then "" else
-      s!"unfold {String.intercalate " " usedInv.toList}; "
-    refuteByInstances matroidRefuterSimpArgs (mkConst ``Nat)
-      matroidInstances stmt (pre := pre)
+  let refuter : Refuter := matroidRefuterInv
   let mut corpus := corpus0
   let mut table : Array (String × String × String × String) := #[]
   let mut repairWins := 0
