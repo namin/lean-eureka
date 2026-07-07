@@ -27,15 +27,29 @@ open Lean Meta Elab
 namespace Eureka
 namespace Runtime
 
-/-- Strip code fences and a leading `by` from model output. -/
+/-- Prose lines open with an uppercase sentence ("Looking at this goal,
+I need..."); tactic lines open lowercase or with a symbol. Blank lines
+count as prose so leading/trailing paragraphs strip cleanly. -/
+private def proseLine (line : String) : Bool :=
+  let l := line.trimAscii.toString
+  l.isEmpty || l.front.isUpper
+
+/-- Recover the tactic script from model output: unwrap `<answer>` tags
+and code fences, strip leading/trailing prose and a leading `by`. -/
 def extractProofScript (text : String) : String :=
   let t := text.trimAscii.toString
-  let t := if t.startsWith "```" then
-    let lines := (t.splitOn "\n").drop 1
-    let lines := if ((lines.getLast?).getD "").trimAscii.toString.startsWith "```"
-      then lines.dropLast else lines
-    String.intercalate "\n" lines
-  else t
+  let t := match t.splitOn "<answer>" with
+    | _ :: rest :: _ =>
+      ((rest.splitOn "</answer>").headD rest).trimAscii.toString
+    | _ => t
+  let t := match t.splitOn "```" with
+    | _ :: chunk :: _ =>
+      (String.intercalate "\n" ((chunk.splitOn "\n").drop 1)).trimAscii.toString
+    | _ => t
+  let t :=
+    let lines := (t.splitOn "\n").dropWhile proseLine
+    let lines := (lines.reverse.dropWhile proseLine).reverse
+    if lines.isEmpty then t else String.intercalate "\n" lines
   let t := t.trimAscii.toString
   if t.startsWith "by\n" then (t.drop 3).trimAscii.toString
   else if t.startsWith "by " then (t.drop 3).trimAscii.toString
@@ -54,6 +68,8 @@ Goal:
 
 Lemmas likely to help (full names, from Mathlib/core):
 {premises}{feedback}
+Definitions in the `Invented` namespace have no simp lemmas: open them \
+with `unfold Invented.foo at h ⊢` or `change`, never `simp [Invented.foo]`.
 Reply with ONLY the tactic script (what goes after `by`), no prose, no \
 code fences. `sorry`, `admit`, and fresh axioms are rejected."
 

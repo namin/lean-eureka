@@ -95,7 +95,7 @@ and_left_comm]"]
     { known := deepKnown, extraRungs := cheapRungs ++ #["aesop"],
       composeDepth := 3 }
   let call ← Eureka.LLM.withTranscript "transcripts/matroid-prove.jsonl" "matroid-prove"
-    (Eureka.LLM.invoke Eureka.LLM.defaultConfig)
+    (Eureka.LLM.invoke Eureka.LLM.proverConfig)
   let refuter : Refuter := matroidRefuterInv
   let mut corpus := corpus0
   let mut table : Array (String × String × String × String) := #[]

@@ -64,7 +64,7 @@ and_comm, and_assoc, and_left_comm]"]
 
   -- ── the repair phase, metered ──
   let calls ← IO.mkRef 0
-  let raw := Eureka.LLM.invoke Eureka.LLM.defaultConfig
+  let raw := Eureka.LLM.invoke Eureka.LLM.proverConfig
   let inner ← Eureka.LLM.withTranscript
     "transcripts/bench-repair.jsonl" "bench-repair" raw
   let call : String → IO (Except String String) := fun p => do

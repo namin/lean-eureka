@@ -22,19 +22,37 @@ structure Config where
   region    : String := "us-east-1"
   modelId   : String := "us.anthropic.claude-sonnet-5"
   maxTokens : Nat    := 16000
+  thinking  : Bool   := false
+  effort    : Option String := none
   bodyPath  : String := "/tmp/lean-eureka-bedrock-body.json"
   outPath   : String := "/tmp/lean-eureka-bedrock-out.json"
 
+/-- Proposal-shaped calls (the concept booth): no thinking, the reply is
+a cheap formatted line. -/
 def defaultConfig : Config := {}
 
+/-- Reasoning-shaped calls (the prover's repair rung): adaptive thinking
+capped at medium effort — on unprovable goals deliberation otherwise
+expands to fill any `max_tokens` (measured: 31993 of 32000 tokens spent
+thinking, no answer ever started) — with output headroom so a real think
+never starves the answer. -/
+def proverConfig : Config :=
+  { thinking := true, maxTokens := 32000, effort := some "medium" }
+
 private def bodyJson (cfg : Config) (prompt : String) : Json :=
-  Json.mkObj [
+  let fields := [
     ("anthropic_version", Json.str "bedrock-2023-05-31"),
+    ("thinking", Json.mkObj
+      [("type", Json.str (if cfg.thinking then "adaptive" else "disabled"))]),
     ("max_tokens", toJson cfg.maxTokens),
     ("messages", Json.arr #[
       Json.mkObj [("role", Json.str "user"), ("content", Json.str prompt)]
     ])
   ]
+  let fields := match cfg.effort with
+    | some e => fields ++ [("output_config", Json.mkObj [("effort", Json.str e)])]
+    | none => fields
+  Json.mkObj fields
 
 /-- Concatenate every `text` block in the response (the content array may
 lead with a `thinking` block, which has no `text` field). -/

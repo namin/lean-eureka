@@ -84,7 +84,50 @@ thinking block, and the client's extractor found nothing. A quarter of
 the repair budget evaporated into a client gap, diagnosed only because
 the transcripts existed. The next lever on this benchmark is therefore
 not a smarter prover but a fixed client (retry-on-empty extraction, or
-a separate thinking budget), then re-measure.
+a separate thinking budget), then re-measure. (Done — postscript below.)
+
+## Postscript: the client fix, measured
+
+The re-measurement the paragraph above asked for: five configurations
+of the repair rung over the same corpus v2, one variable at a time.
+Transcripts for every run are archived under `transcripts/`.
+
+| run | client configuration | closed | attempted | deferred | no-text calls | contaminated replies |
+|---|---|---|---|---|---|---|
+| 1 | Sonnet 5, thinking, 16k (baseline above) | 1 | 23 | 8 | 10/39 | 8 |
+| 2 | Sonnet 5, thinking off | 0 | 19 | 12 | 0/38 | 23/38 |
+| 3 | Sonnet 4.6, thinking off | 0 | 19 | 12 | 0/38 | 19/38 |
+| 4 | Sonnet 5, thinking, 32k + hardened harness | 1 | 22 | 9 | 13/39 | 0 |
+| 5 | **Sonnet 5, thinking at `effort: medium`, 32k + hardened harness** | **1** | 20 | 11 | **3/39** | **0** |
+
+Findings, in causal order:
+
+- **The no-text failures were not a plumbing bug.** Doubling
+  `max_tokens` (run 4) did not reduce them: on goals it cannot crack,
+  the model's deliberation expands to fill any budget — measured, 31993
+  of 32000 output tokens spent thinking, no answer ever started. The
+  lever is the `effort` cap, not headroom; `budget_tokens`, the fix the
+  paragraph above guessed at, no longer exists on this model family.
+- **Thinking is load-bearing for output discipline.** With thinking off
+  (runs 2–3), half the replies open with prose or `<answer>` tags
+  despite the no-prose instruction, and nothing closes.
+- **The harness was leaking calls.** `extractProofScript` now unwraps
+  `<answer>` tags and code fences and strips leading/trailing prose;
+  the repair prompt now warns that `Invented.*` definitions have no
+  simp lemmas (`unfold`/`change`, never `simp [Invented.foo]`) — a
+  transcript near-miss died on exactly that idiom.
+- **The closure count is invariant.** Every configuration closes the
+  same statement (`dual_IsBase → Coindep`) or nothing. Repair's
+  marginal contribution over the symbolic ladder stays zero; the
+  residue is proof capacity — now established across two models and
+  three thinking regimes rather than assumed.
+
+Where the client landed (`Eureka/LLM.lean`): `defaultConfig` — no
+thinking, 16k — for proposal-shaped callers (the concept booth);
+`proverConfig` — adaptive thinking at `effort: medium`, 32k — for the
+repair rung (`BenchProveRun.lean`, `MatroidProveRun.lean`). Run 5 is
+the standing configuration: the baseline's closure at a fraction of
+the waste.
 
 ## Reproduction
 
