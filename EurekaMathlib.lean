@@ -1,3 +1,4 @@
 import EurekaMathlib.Domain
 import EurekaMathlib.MatroidDisco
 import EurekaMathlib.GraphDisco
+import EurekaMathlib.OrderDisco
