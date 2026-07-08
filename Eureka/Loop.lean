@@ -44,16 +44,26 @@ description of the witness. `refuteByInstances` (domain layer) produces
 these; the default refuter is silent, and silence never certifies truth. -/
 abbrev Refuter := Expr → MetaM (Option (Expr × Expr × String))
 
+/-- The per-judgment heartbeat budget: the default command budget, pinned.
+Long-running drivers may raise the *command* ceiling (`set_option
+maxHeartbeats`) for loop overhead — reply parsing, dedup scans, printing —
+without silently deepening the prover: a rung that times out in CI times
+out identically in every driver. -/
+def judgeHeartbeats : Nat := 200000
+
 /-- Judge one conjecture: refute if the domain can, else hunt for evidence
 and, on support, admit through the gate. A refutation is itself a fact —
 the negated instance — and enters the corpus through `commitFact` like any
 other: false conjectures die by the same evidence standard by which true
 ones live. The corpus grows on `admitted` and on certified refutation. One
-conjecture, one heartbeat budget — a long run's earlier judgments must not
-starve later ones. -/
+conjecture, one heartbeat budget (`judgeHeartbeats`) — a long run's earlier
+judgments must not starve later ones, and a raised command ceiling must not
+feed them. -/
 def judge (known : Array KnownLemma) (corpus : Corpus) (c : Conjecture)
     (refuter : Refuter := fun _ => pure none) :
-    MetaM (Corpus × Outcome) := withCurrHeartbeats do
+    MetaM (Corpus × Outcome) :=
+  withOptions (fun o => o.set `maxHeartbeats judgeHeartbeats) <|
+    withCurrHeartbeats do
   if let some (negStmt, pf, witness) ← refuter c.stmt then
     let nm ← freshName (c.name.appendAfter "_refuted")
     match ← commitFact { name := nm, stmt := negStmt, proof := pf } with

@@ -9,5 +9,6 @@ import Eureka.Prove
 import Eureka.LLM
 import Eureka.Booth
 import Eureka.Reflect
+import Eureka.NL
 import Eureka.Evolve
 import Eureka.ConceptBooth

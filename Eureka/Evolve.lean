@@ -1,4 +1,5 @@
 import Eureka.Reflect
+import Eureka.NL
 import Eureka.Worth
 import Eureka.Prove
 
@@ -8,9 +9,12 @@ import Eureka.Prove
 The EURISKO layer. Heuristics — template and born alike — live in one
 population as `Agent`s. Any agent may propose facts, *new heuristics as
 source code* (`RProposal.rule`) — so heuristics birth heuristics to any
-depth — or *concepts* (`RProposal.concept`), mirroring the model's three
-proposal kinds. Births pass the rule gate, facts pass the fact gate,
-concepts pass the birth gate and the identity probe.
+depth — *new heuristics as English* (`RProposal.nlRule`,
+DESIGN_HEURISTICS_NL: the body is data, fired by the trusted `nlAgent`
+combinator through one metered LLM call), or *concepts*
+(`RProposal.concept`). Births pass the rule gate (code) or the NL gate
+(English), facts pass the fact gate, concepts pass the birth gate and
+the identity probe.
 
 Worth (DESIGN_WORTH) is a fold of the event ledger through the pricing
 table (`Eureka.Worth`): smoothed value per unit of attention, certainty
@@ -30,12 +34,19 @@ open Lean Meta
 namespace Eureka
 namespace Runtime
 
-/-- What an agent may propose: a fact, a new heuristic as source code, or
-a concept — the model's three proposal kinds. -/
+/-- What an agent may propose: a fact, a new heuristic as source code, a
+concept, or a new heuristic as English. The model needs no fourth kind:
+`discovery_sound` quantifies over arbitrary adversarial interpreters, and
+an LLM interpreting an English body is one instantiation of `.rule`'s
+"arbitrary heuristic under an arbitrary interpreter". -/
 inductive RProposal where
   | fact (c : Conjecture)
   | rule (name : Name) (src : String)
   | concept (p : ConceptProposal)
+  /-- A heuristic birth as English (DESIGN_HEURISTICS_NL N1): the body is
+  data, never elaborated or executed; the trusted combinator `nlAgent`
+  interprets it at fire time through one metered LLM call. -/
+  | nlRule (name : Name) (body : String)
 
 /-- The agent interface type for born heuristics. -/
 abbrev AgentFn := Corpus → MetaM (Array RProposal)
@@ -49,6 +60,12 @@ structure Agent where
   propose : AgentFn
   proposeP : Option (ConceptPool → Corpus → MetaM (Array RProposal)) := none
   parent : Option Name := none
+  /-- NL heuristics (DESIGN_HEURISTICS_NL N1): the English body — data
+  for the NL gate's dedup; never executed. -/
+  nlBody : Option String := none
+  /-- Firing this agent consumes one LLM call: metered per generation by
+  `nlProposeBudget` and priced as `.llmCalled` attention (N4). -/
+  llmPerFire : Bool := false
 
 /-- Wrap a facts-only heuristic as an agent. -/
 def Agent.ofConj (h : ConjHeuristic) : Agent where
@@ -88,6 +105,40 @@ def installAgentSrc (name : Name) (src : String) (parent : Option Name := none) 
       return .ok { name, propose := fun c => return (← fn c).map .fact, parent }
     | .error _ => return .error eAgent
 
+/-- The NL combinator (DESIGN_HEURISTICS_NL N1): the trusted interpreter
+of a born English body. Renders the body into a stage-one-booth prompt,
+makes ONE LLM call, parses the reply through the booth pipeline, and
+returns `.fact` proposals. The body is never executed — the rule gate's
+denylist question ("what may this code reach?") does not apply to it;
+instead the loop meters the call (`nlProposeBudget`) and the ledger
+prices it (`.llmCalled`). Unparseable reply lines are fed back into the
+agent's next prompt, booth-style, not priced individually (N3). -/
+def nlAgent (call : String → IO (Except String String)) (name : Name)
+    (body : String) (parent : Option Name := none) : MetaM Agent := do
+  let feedback ← IO.mkRef (none : Option String)
+  let counter ← IO.mkRef 0
+  let propose : AgentFn := fun corpus => do
+    let prompt ← renderNLPrompt body corpus (← feedback.get)
+    match ← call prompt with
+    | .error e =>
+      IO.println s!"  [{name}] LLM call failed: {e}"
+      return #[]
+    | .ok text =>
+      let mut out : Array RProposal := #[]
+      let mut bad : Array String := #[]
+      for cand in extractCandidates text do
+        match ← parseConjecture cand with
+        | none => bad := bad.push cand
+        | some stmt =>
+          let i ← counter.get
+          counter.set (i + 1)
+          out := out.push (.fact
+            { name := .mkSimple s!"{name}_{i}", stmt, origin := name })
+      feedback.set (if bad.isEmpty then none else some
+        (String.intercalate "\n" ((bad.toList.take 8).map fun l => s!"  {l}")))
+      return out
+  return { name, parent, propose, nlBody := some body, llmPerFire := true }
+
 structure EvolveConfig where
   generations : Nat := 4
   judgeBudget : Nat := 40
@@ -124,6 +175,12 @@ structure EvolveConfig where
   across generations — the standing-obligation tail trigger (i) cannot
   reach. 0 = off. -/
   sweepBudget : Nat := 0
+  /-- NL heuristics (DESIGN_HEURISTICS_NL N2): the transport for `.nlRule`
+  births. Births are refused when absent, mirroring concept routing. -/
+  nlCall : Option (String → IO (Except String String)) := none
+  /-- N4: LLM firings per generation across `llmPerFire` agents, spent in
+  worth order like the judge budget. 0 = such agents never fire. -/
+  nlProposeBudget : Nat := 0
 
 /-- The population run's full result: the corpus, the event ledger (the
 economy's instrument), the concept pool, the final population, and the
@@ -203,12 +260,22 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
     IO.println <| "  agenda: " ++ String.intercalate " · "
       (ordered.toList.map fun a => s!"{a.name} {fmtW (wor a.name)}")
     let mut budget := cfg.judgeBudget
+    let mut nlBudget := cfg.nlProposeBudget
     let mut starved : Array Name := #[]
     for agent in ordered do
       let mut floorLeft := if cfg.explorationFloor then 1 else 0
       if budget == 0 && floorLeft == 0 then
         starved := starved.push agent.name
         continue
+      -- Metered firing (DESIGN_HEURISTICS_NL N4): an `llmPerFire` agent's
+      -- firing is one LLM call — spent from `nlBudget` in worth order and
+      -- priced as attention, whatever the call returns.
+      if agent.llmPerFire then
+        if nlBudget == 0 then
+          starved := starved.push agent.name
+          continue
+        nlBudget := nlBudget - 1
+        ledger := ledger.record agent.name .llmCalled
       let fire := match agent.proposeP with
         | some f => f pool corpus
         | none => agent.propose corpus
@@ -227,6 +294,26 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
             IO.println s!"  ✚ [{agent.name}] birthed heuristic {childName} (rule gate passed)"
           | .error e =>
             IO.println s!"  ✗ [{agent.name}] birth of {childName} refused: {e}"
+        | .nlRule childName body =>
+          if population.any (·.name == childName) then
+            continue -- already born; silent (agents re-fire every generation)
+          match cfg.nlCall with
+          | none =>
+            ledger := ledger.record agent.name .nlRefused
+            IO.println s!"  ! [{agent.name}] NL heuristic {childName} — \
+no NL transport configured"
+          | some call =>
+            match nlBodyCheck body (population.filterMap (·.nlBody)) with
+            | some violation =>
+              ledger := ledger.record agent.name .nlRefused
+              IO.println s!"  ✗ [{agent.name}] NL birth of {childName} \
+refused: {violation}"
+            | none =>
+              let child ← nlAgent call childName body (parent := agent.name)
+              population := population.push child
+              ledger := ledger.record agent.name .ruleBorn
+              IO.println s!"  ✚ [{agent.name}] birthed NL heuristic \
+{childName} (NL gate passed)"
         | .concept cp =>
           match cfg.probeCtx with
           | none =>
@@ -493,6 +580,24 @@ def llmOracleAgent (call : String → IO (Except String String)) : Agent where
     | .ok text =>
       let src := extractTerm text
       return #[.rule (.mkSimple s!"llmborn_{corpus.facts.size}") src]
+
+/-- The NL sibling of `llmOracleAgent` (DESIGN_HEURISTICS_NL N5): its
+only move is to birth heuristics *as English*. Its own firing is
+metered like every `llmPerFire` agent; duplicate or vacuous births are
+refused by the NL gate and priced, and dud children sink it via parent
+credit like anyone else. -/
+def nlOracleAgent (call : String → IO (Except String String)) : Agent where
+  name := `nl_oracle
+  llmPerFire := true
+  propose := fun corpus => do
+    let prompt ← renderNLOraclePrompt corpus
+    match ← call prompt with
+    | .error e =>
+      IO.println s!"  [nl_oracle] call failed: {e}"
+      return #[]
+    | .ok text =>
+      return #[.nlRule (.mkSimple s!"nlborn_{corpus.facts.size}")
+        text.trimAscii.toString]
 
 end Runtime
 end Eureka

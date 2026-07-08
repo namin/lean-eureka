@@ -70,6 +70,14 @@ inductive EventKind where
   | conceptRefused
   | inventedEdge (concept : Name)
   | conceptAttracted (concept : Name)
+  /-- One LLM call made at fire time on the agent's behalf
+  (DESIGN_HEURISTICS_NL N4): price zero, attention one — expense is
+  attention, so a yield-less NL agent sinks and accrues the trials the
+  kill rule needs. -/
+  | llmCalled
+  /-- An `.nlRule` birth refused by the NL gate (DESIGN_HEURISTICS_NL
+  N2): priced like malformed output. -/
+  | nlRefused
   deriving BEq, Repr, Inhabited
 
 structure Event where
@@ -119,13 +127,14 @@ structure Prices where
   attracted : Float := 0.5
   childFactor : Float := 0.5
 
-/-- Does the event consume attention (a judge slot or a birth-gate pass)?
-Proposal-time repeats and dups, delayed credits, and rule births do
-not. -/
+/-- Does the event consume attention (a judge slot, a birth-gate pass,
+or an LLM call)? Proposal-time repeats and dups, delayed credits, and
+rule births do not. -/
 def EventKind.attention : EventKind → Bool
   | .factAdmitted _ | .factRefuted | .factOpen | .refusedAtGate => true
   | .conceptAlias _ delayed => !delayed
   | .conceptDegenerate | .conceptNovel | .conceptRefused => true
+  | .llmCalled | .nlRefused => true
   | .factRepeat | .factDup | .ruleBorn | .inventedEdge _
   | .conceptAttracted _ => false
 
@@ -164,6 +173,8 @@ def Ledger.ownValue (l : Ledger) (p : Prices) (agent : Name) : Float :=
         | .conceptRefused => v := v + p.refused
         | .inventedEdge _ => v := v + p.inventedEdge
         | .conceptAttracted _ => v := v + p.attracted
+        | .llmCalled => pure ()
+        | .nlRefused => v := v + p.refused
     return v
 
 def Ledger.attention (l : Ledger) (agent : Name) : Nat :=
@@ -196,6 +207,8 @@ structure AgentCounts where
   conceptsRefused : Nat := 0
   inventedEdges : Nat := 0
   attracted : Nat := 0
+  llmCalls : Nat := 0
+  nlRefused : Nat := 0
 
 def Ledger.counts (l : Ledger) (agent : Name) : AgentCounts :=
   l.events.foldl (init := {}) fun c e =>
@@ -218,6 +231,8 @@ def Ledger.counts (l : Ledger) (agent : Name) : AgentCounts :=
     | .conceptRefused => { c with conceptsRefused := c.conceptsRefused + 1 }
     | .inventedEdge _ => { c with inventedEdges := c.inventedEdges + 1 }
     | .conceptAttracted _ => { c with attracted := c.attracted + 1 }
+    | .llmCalled => { c with llmCalls := c.llmCalls + 1 }
+    | .nlRefused => { c with nlRefused := c.nlRefused + 1 }
 
 def AgentCounts.describe (c : AgentCounts) : String :=
   s!"{c.admitted} admitted, {c.refuted} refuted, {c.dups} merged, \
@@ -227,7 +242,9 @@ def AgentCounts.describe (c : AgentCounts) : String :=
     s!", concepts: {c.conceptsNovel} novel/{c.conceptsAliased} aliased/\
 {c.conceptsDegenerate} degenerate/{c.conceptsRefused} refused, \
 {c.inventedEdges} vocabulary credits"
-  else "")
+  else "") ++
+  (if c.llmCalls > 0 then s!", {c.llmCalls} llm calls" else "") ++
+  (if c.nlRefused > 0 then s!", {c.nlRefused} nl-refused" else "")
 
 end Runtime
 end Eureka
