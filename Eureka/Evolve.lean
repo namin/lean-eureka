@@ -592,7 +592,9 @@ cancelled for {origin}"
                   | _ => none
                 mutCursor := mutCursor + 1
                 match applyMutOp g op mutCursor donor? with
-                | some g' => mutationRequests := mutationRequests.push (t, g')
+                | some g' =>
+                  mutationRequests := mutationRequests.push (t, g')
+                  IO.println s!"  [curator] ⚙ chose mutate {t} → {g'.mutName}"
                 | none =>
                   IO.println s!"  [curator] mutate {t}: operator not applicable"
               | none => IO.println s!"  [curator] dropped mutate: no genome for {t}"

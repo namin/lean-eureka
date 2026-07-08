@@ -17,8 +17,13 @@ escalation nominations, labels): `Eureka/Evolve.lean`. Acceptance
 tests 1–6: `CuratorStub.lean` (CI) — including the planted farm: the
 derby's tautology farmer survives the bare economy and dies under
 canned curation. Two rulings amended at build time (L2 decay regime,
-L6 cancellation) — marked in place. Pending: the live ablation
-(`CuratorRun.lean`, Bedrock) and its report (L7's instruments).
+L6 cancellation) — marked in place. The live ablation ran 2026-07-07
+(`CuratorRun.lean`, 6 curator calls): allocation moved coherently to
+the earning frontier, the shallowest agent was economically zeroed,
+and curated mutation produced 17 judged mutant proposals against the
+round-robin control's **zero** — numbers and warts in
+`REPORT_CURATOR.md`. Still pending: the matroid-domain ablation and
+L7-iii calibration proper.
 Reference points: the schedule-invariance ruling (DESIGN_WORTH W4,
 `discovery_sound`), the worth ledger (`Eureka/Worth.lean`), the rule
 gate and the specializer chain (`Eureka/Evolve.lean`), the derby's
