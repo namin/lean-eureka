@@ -30,6 +30,8 @@ jobs:
         run: lake env lean EvolveStub.lean
       - name: nl heuristics (deterministic)
         run: lake env lean NLStub.lean
+      - name: curator + mutation stream (deterministic)
+        run: lake env lean CuratorStub.lean
       - name: worth economy (deterministic)
         run: lake env lean WorthStub.lean
       - name: depth economy (deterministic)

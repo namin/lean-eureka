@@ -1,5 +1,6 @@
 import Eureka.Reflect
 import Eureka.NL
+import Eureka.Curator
 import Eureka.Worth
 import Eureka.Prove
 
@@ -181,6 +182,16 @@ structure EvolveConfig where
   /-- N4: LLM firings per generation across `llmPerFire` agents, spent in
   worth order like the judge budget. 0 = such agents never fire. -/
   nlProposeBudget : Nat := 0
+  /-- The curator (DESIGN_CURATOR L8): transport for the curate pass.
+  Absent = no curation. -/
+  curatorCall : Option (String → IO (Except String String)) := none
+  /-- Curate calls per generation (a system budget, like escalation). -/
+  curatorBudget : Nat := 1
+  /-- Genome-backed agents the mutation stream may start from (L4). -/
+  seedGenomes : List (Name × MutGenome) := []
+  /-- Curator-less mutation pressure (L7-iv baseline): mutants birthed
+  per generation by round-robin over the genome table. 0 = off. -/
+  mutationRoundRobin : Nat := 0
 
 /-- The population run's full result: the corpus, the event ledger (the
 economy's instrument), the concept pool, the final population, and the
@@ -193,6 +204,8 @@ structure EvolveResult where
   population : Array Agent
   dead : Array Name
   opens : Array (Conjecture × Name × Nat) := #[]
+  /-- Curator labels (DESIGN_CURATOR L1): display-layer notes. -/
+  labels : Array (Name × String) := #[]
 
 /-- Merges pay through one path (DESIGN_RECORD R3): delayed-alias credit
 to the younger concept's inventor, attracted credit to the elder's when
@@ -248,6 +261,16 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
   -- (conjecture, proposer, escalation tries).
   let mut opens : Array (Conjecture × Name × Nat) := #[]
   let mut sweepCursor := 0
+  -- Curator + mutation state (DESIGN_CURATOR): the genome table, fact
+  -- provenance for flags, the one-flag-per-fact set, escalation
+  -- nominations, labels, and the mutation cursor.
+  let mut genomes : NameMap MutGenome :=
+    cfg.seedGenomes.foldl (fun m (n, g) => m.insert n g) {}
+  let mut factOrigins : NameMap (Name × Tier) := {}
+  let mut flagged : NameSet := {}
+  let mut nominated : Array Name := #[]
+  let mut labels : Array (Name × String) := #[]
+  let mut mutCursor := 0
   for gen in [1 : cfg.generations + 1] do
     IO.println ""
     IO.println s!"── generation {gen} ──"
@@ -262,6 +285,7 @@ def evolveWith (initial : List Agent) (cfg : EvolveConfig := {})
     let mut budget := cfg.judgeBudget
     let mut nlBudget := cfg.nlProposeBudget
     let mut starved : Array Name := #[]
+    let mut genLog : Array String := #[]
     for agent in ordered do
       let mut floorLeft := if cfg.explorationFloor then 1 else 0
       if budget == 0 && floorLeft == 0 then
@@ -364,6 +388,7 @@ refused: {violation}"
           if let some nm := alias? then
             ledger := ledger.record agent.name .factDup
             attempted := attempted.push (c.stmt, nm)
+            genLog := genLog.push s!"≡ [{agent.name}] {toString (← ppExpr c.stmt)} — alias of {nm}"
             IO.println s!"  ≡ [{agent.name}] {toString (← ppExpr c.stmt)} — alias of {nm}, merged"
             continue
           if floorLeft > 0 then
@@ -386,13 +411,17 @@ refused: {violation}"
           match outcome with
           | .refuted cex =>
             ledger := ledger.record agent.name .factRefuted
+            genLog := genLog.push s!"✗ [{agent.name}] {pretty} — refuted ({cex})"
             IO.println s!"  ✗ [{agent.name}] {pretty} — refuted ({cex})"
           | .stillOpen =>
             ledger := ledger.record agent.name .factOpen
             opens := opens.push (c, agent.name, 0)
+            genLog := genLog.push s!"? [{agent.name}] {pretty} — open"
             IO.println s!"  ? [{agent.name}] {pretty} — open"
           | .admitted f note =>
             ledger := ledger.record agent.name (.factAdmitted (tierOfRung note))
+            factOrigins := factOrigins.insert f.name (agent.name, tierOfRung note)
+            genLog := genLog.push s!"✓ [{agent.name}] {pretty} — admitted as {f.name} ({note})"
             IO.println s!"  ✓ [{agent.name}] {pretty} — admitted ({note})"
             let (pool', corpus'', ledger') ←
               creditAdmission cfg.probeCtx pool corpus ledger f
@@ -419,6 +448,12 @@ refused: {violation}"
           fun a b => a.2.2 < b.2.2
         let queue := eligible.filter mentionsInv ++
           eligible.filter (fun e => !mentionsInv e)
+        -- Curator nominations (DESIGN_CURATOR L5) jump the queue,
+        -- consumed on use.
+        let isNom := fun (e : Conjecture × Name × Nat) =>
+          nominated.any (· == e.1.name)
+        let queue := queue.filter isNom ++ queue.filter (fun e => !isNom e)
+        nominated := #[]
         let mut attemptedStmts : Array Expr := #[]
         let mut resolvedStmts : Array Expr := #[]
         let mut llmLeft := cfg.llmProofBudget
@@ -441,7 +476,10 @@ refused: {violation}"
           match outcome with
           | .admitted f note =>
             ledger := ledger.record proposer (.factAdmitted .escalated)
+            factOrigins := factOrigins.insert f.name (proposer, .escalated)
             resolvedStmts := resolvedStmts.push c.stmt
+            genLog := genLog.push s!"⇧ [{proposer}] {toString (← ppExpr c.stmt)} — \
+admitted as {f.name} ({note})"
             IO.println s!"  ⇧ [{proposer}] {toString (← ppExpr c.stmt)} — \
 admitted ({note})"
             let (pool', corpus'', ledger') ←
@@ -472,6 +510,105 @@ still open after escalation"
         corpus := corpus'
         sweepCursor := cursor'
         ledger ← creditMerges pool ledger merges "sweep"
+    -- The mutation stream (DESIGN_CURATOR L4): requests from the
+    -- round-robin baseline and from curator `mutate` actions, birthed
+    -- below as ordinary rule-gate births with parent credit.
+    let mut mutationRequests : Array (Name × MutGenome) := #[]
+    if cfg.mutationRoundRobin > 0 then
+      let entries := genomes.toList.toArray
+      unless entries.isEmpty do
+        let mut made := 0
+        let mut tries := 0
+        while made < cfg.mutationRoundRobin && tries < entries.size * 4 do
+          let (tname, g) := entries[mutCursor % entries.size]!
+          let op : MutOp := if tries % 2 == 0 then .substOp else .restrictPool
+          mutCursor := mutCursor + 1
+          tries := tries + 1
+          if let some g' := applyMutOp g op mutCursor none then
+            unless population.any (·.name == g'.mutName) do
+              mutationRequests := mutationRequests.push (tname, g')
+              made := made + 1
+    -- The curate pass (DESIGN_CURATOR L1–L3, L5–L6): schedule-only by
+    -- type. Runs before the kill sweep; every effect is a priced,
+    -- bounded ledger event, a nomination, a mutation *choice*, or a
+    -- label. The kill rule itself is untouched (L3).
+    if let some ccall := cfg.curatorCall then
+      let popNow := population
+      let childrenNow := fun (a : Name) =>
+        (popNow.filter (fun x => x.parent == some a)).map (·.name)
+      let liveNow := population.filter fun a => !dead.contains a.name
+      let mut agendaStr := ""
+      for a in liveNow do
+        agendaStr := agendaStr ++
+          s!"  {a.name} {fmtW (ledger.worth cfg.prices childrenNow a.name)}\n"
+      let outcomesStr := String.intercalate "\n"
+        ((genLog.toList.take 60).map fun l => s!"  {l}") ++ "\n"
+      let mut mutablesStr := ""
+      for (n, g) in genomes.toList do
+        mutablesStr := mutablesStr ++ s!"  {n}: schemas \
+[{String.intercalate ", " (g.schemas.map (·.tag))}], ops \
+[{String.intercalate ", " (g.ops.map (·.tag))}]\n"
+      for _ in [0 : cfg.curatorBudget] do
+        let prompt := renderCuratorPrompt gen agendaStr outcomesStr mutablesStr
+        ledger := ledger.record `curator .llmCalled
+        match ← ccall prompt with
+        | .error e => IO.println s!"  [curator] call failed: {e}"
+        | .ok text =>
+          let (actions, dropped) := parseCuratorReply text
+          for d in dropped do
+            IO.println s!"  [curator] dropped: {d}"
+          for act in actions do
+            match act with
+            | .boost a =>
+              if population.any (·.name == a) then
+                ledger := ledger.record a .curatorBoost
+                IO.println s!"  [curator] ▲ boost {a}"
+              else IO.println s!"  [curator] dropped boost: unknown agent {a}"
+            | .damp a =>
+              if population.any (·.name == a) then
+                ledger := ledger.record a .curatorDamp
+                IO.println s!"  [curator] ▼ damp {a}"
+              else IO.println s!"  [curator] dropped damp: unknown agent {a}"
+            | .flag f =>
+              match factOrigins.find? f with
+              | some (origin, tier) =>
+                if flagged.contains f then
+                  IO.println s!"  [curator] dropped flag: {f} already flagged"
+                else
+                  flagged := flagged.insert f
+                  ledger := ledger.record origin (.curatorFlagged tier)
+                  IO.println s!"  [curator] ⚑ {f} — admission pay \
+cancelled for {origin}"
+              | none => IO.println s!"  [curator] dropped flag: unknown fact {f}"
+            | .escalate c =>
+              nominated := nominated.push c
+              IO.println s!"  [curator] ⇧ {c} nominated for escalation \
+(next generation)"
+            | .mutate t op =>
+              match genomes.find? t with
+              | some g =>
+                let donor? := match op with
+                  | .crossover d => genomes.find? d
+                  | _ => none
+                mutCursor := mutCursor + 1
+                match applyMutOp g op mutCursor donor? with
+                | some g' => mutationRequests := mutationRequests.push (t, g')
+                | none =>
+                  IO.println s!"  [curator] mutate {t}: operator not applicable"
+              | none => IO.println s!"  [curator] dropped mutate: no genome for {t}"
+            | .label t note =>
+              labels := labels.push (t, note)
+              IO.println s!"  [curator] ✎ {t}: {note}"
+    for (tname, g') in mutationRequests do
+      if population.any (·.name == g'.mutName) then continue
+      match ← installAgentSrc g'.mutName (genomeSourceFor g') (parent := tname) with
+      | .ok child =>
+        population := population.push child
+        genomes := genomes.insert g'.mutName g'
+        ledger := ledger.record tname .ruleBorn
+        IO.println s!"  ⚙ mutant {g'.mutName} born of {tname} (rule gate passed)"
+      | .error e =>
+        IO.println s!"  ✗ mutant {g'.mutName} refused: {e}"
     -- kill sweep
     let pop' := population
     let children' := fun (a : Name) =>
@@ -496,7 +633,7 @@ still open after escalation"
     IO.println s!"  {a.name}{mark}: worth \
 {fmtW (ledger.worth cfg.prices childrenF a.name)} — \
 {(ledger.counts a.name).describe}{from_}"
-  return { corpus, ledger, pool, population, opens,
+  return { corpus, ledger, pool, population, opens, labels,
            dead := population.filterMap fun a =>
              if dead.contains a.name then some a.name else none }
 

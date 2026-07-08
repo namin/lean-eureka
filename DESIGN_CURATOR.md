@@ -6,12 +6,24 @@ the schedule-only seam the model already proved harmless (W4). Organized
 as: what this is, the constraining facts, the decisions (L1–L8), the
 acceptance tests, fixed before any code.
 
-**Status: design only.** Nothing built. Reference points: the
-schedule-invariance ruling (DESIGN_WORTH W4, `discovery_sound`), the
-worth ledger (`Eureka/Worth.lean`), the rule gate and the specializer
-chain (`Eureka/Evolve.lean`), the derby's findings
-(`REPORT_HEURISTICS_NL.md`), and eurisclo — the lineage's symbolic
-mutation vocabulary.
+**Status: built (L1–L6, L8); live ablation pending.** Mutation stream:
+`Eureka/Mutate.lean` (genomes, `schemaPropose`, `substOp` /
+`restrictPool` / `crossover`, mutants as ordinary rule-gate births).
+Action grammar + prompt: `Eureka/Curator.lean`. Events and pricing
+(`curatorBoost`/`curatorDamp` capped-decaying stream,
+`curatorFlagged` cancellation): `Eureka/Worth.lean`. Loop wiring
+(curate pass, round-robin baseline, fact provenance for flags,
+escalation nominations, labels): `Eureka/Evolve.lean`. Acceptance
+tests 1–6: `CuratorStub.lean` (CI) — including the planted farm: the
+derby's tautology farmer survives the bare economy and dies under
+canned curation. Two rulings amended at build time (L2 decay regime,
+L6 cancellation) — marked in place. Pending: the live ablation
+(`CuratorRun.lean`, Bedrock) and its report (L7's instruments).
+Reference points: the schedule-invariance ruling (DESIGN_WORTH W4,
+`discovery_sound`), the worth ledger (`Eureka/Worth.lean`), the rule
+gate and the specializer chain (`Eureka/Evolve.lean`), the derby's
+findings (`REPORT_HEURISTICS_NL.md`), and eurisclo — the lineage's
+symbolic mutation vocabulary.
 
 ## What this is
 
@@ -87,13 +99,16 @@ attention, which the economy already prices. The rejected alternative
 already optional, and already measured.
 
 **L2 — Curator influence is a ledger event, not hidden state.**
-`curatorBoost`/`curatorDamp` events with fixed magnitude, folded into
-worth as a capped, per-generation-decaying term (prices are data, W1):
-total curator-attributable worth shift per agent bounded by a cap that
-cannot cross the kill threshold's distance on its own. *Why:*
-trajectories stay a projection of the ledger; curator influence is
-visible in the same instrument as everything else, and calibration
-(L7) needs the events.
+`curatorBoost`/`curatorDamp` events with fixed magnitude
+(`curatorNudge`), folded into worth as one shared per-agent stream with
+decaying returns (`curatorDecay`) and a hard clamp (`curatorCap`) —
+prices are data, W1. *Amended at build time:* the draft said
+"per-generation-decaying," but the ledger has no clock — provenance is
+order (W1) — so the decay regime is the house pattern
+(`refutedDecay`, `aliasDecay`): the n-th nudge pays less, the total
+clamps. *Why:* trajectories stay a projection of the ledger; curator
+influence is visible in the same instrument as everything else, and
+calibration (L7) needs the events.
 
 **L3 — The kill rule is untouched.** Kills still require `attention ≥
 minTrials ∧ worth < killThreshold`; curator taste reaches death only
@@ -125,13 +140,19 @@ P1/P5 precedent). Un-nominated slots fall back to today's ordering.
 *Why:* triage was half of Lenat's job; the machinery exists and is
 already schedule-only.
 
-**L6 — Interestingness flags, priced and bounded.** The curator may
-flag an admitted fact as trivial-in-spirit: a `curatorFlagged` event,
-small negative value to the origin agent, same cap-and-decay regime as
-L2. Flags never touch the corpus — facts are append-only, and only
-certificates tombstone (D3). *Why:* the value-layer referee the farm
-demanded, with fallibility priced in: a wrong flag costs bounded
-worth, is visible in the ledger, and is scored by L7. (The
+**L6 — Flags cancel, they do not nudge.** The curator may flag an
+admitted fact as trivial-in-spirit: a `curatorFlagged tier` event on
+the fact's origin agent that cancels exactly that fact's admission pay
+at its tier — one flag per fact, loop-enforced. *Amended at build
+time:* the draft priced flags inside L2's capped nudge stream, but the
+cap makes the planted-farm criterion (L7-ii) unsatisfiable — a farm
+earning full admission pay per fact outruns any bounded nudge by
+arithmetic. Cancellation is the bounded form that works: total flag
+influence can never exceed value actually earned, and never invents
+negative value. Flags never touch the corpus — facts are append-only,
+and only certificates tombstone (D3). *Why:* the value-layer referee
+the farm demanded, with fallibility priced in: a wrong flag costs one
+fact's pay, is visible in the ledger, and is scored by L7. (The
 *certified* triviality screen — alias-of-`True` probing — is separate,
 mechanical, and complementary; it needs no curator and is ruled
 elsewhere.)

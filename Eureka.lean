@@ -10,5 +10,7 @@ import Eureka.LLM
 import Eureka.Booth
 import Eureka.Reflect
 import Eureka.NL
+import Eureka.Mutate
+import Eureka.Curator
 import Eureka.Evolve
 import Eureka.ConceptBooth

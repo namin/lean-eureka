@@ -78,6 +78,16 @@ inductive EventKind where
   /-- An `.nlRule` birth refused by the NL gate (DESIGN_HEURISTICS_NL
   N2): priced like malformed output. -/
   | nlRefused
+  /-- Curator attention nudges (DESIGN_CURATOR L2): one shared stream
+  per agent — decaying returns, total clamped to ±`curatorCap` in the
+  fold. Attention-free: the agent did not act. -/
+  | curatorBoost
+  | curatorDamp
+  /-- A curator flag on an admitted fact (L6): cancels that fact's
+  admission pay at its tier — influence bounded by value earned, never
+  below what the ledger's other events say. The loop enforces one flag
+  per fact. -/
+  | curatorFlagged (tier : Tier)
   deriving BEq, Repr, Inhabited
 
 structure Event where
@@ -126,6 +136,14 @@ structure Prices where
   /-- A certified bridge landing on your concept (P4): attention-free. -/
   attracted : Float := 0.5
   childFactor : Float := 0.5
+  /-- Curator nudge magnitude (DESIGN_CURATOR L2). -/
+  curatorNudge : Float := 0.25
+  /-- Decaying returns on the curator's nudge stream per agent. -/
+  curatorDecay : Float := 4.0
+  /-- Hard clamp on total curator-attributable value per agent: taste
+  can accelerate or delay the economy's verdicts, never decree them
+  (L3). -/
+  curatorCap : Float := 0.5
 
 /-- Does the event consume attention (a judge slot, a birth-gate pass,
 or an LLM call)? Proposal-time repeats and dups, delayed credits, and
@@ -137,6 +155,7 @@ def EventKind.attention : EventKind → Bool
   | .llmCalled | .nlRefused => true
   | .factRepeat | .factDup | .ruleBorn | .inventedEdge _
   | .conceptAttracted _ => false
+  | .curatorBoost | .curatorDamp | .curatorFlagged _ => false
 
 /-- An agent's own accumulated value — the fold that *is* the pricing:
 alias decay per canonical target, decaying returns on refutations, both
@@ -146,6 +165,8 @@ def Ledger.ownValue (l : Ledger) (p : Prices) (agent : Name) : Float :=
     let mut paidTargets : Array Name := #[]
     let mut refutedSeen : Float := 0.0
     let mut aliasSeen : Float := 0.0
+    let mut curatorSeen : Float := 0.0
+    let mut curator : Float := 0.0
     let mut v : Float := 0.0
     for e in l.events do
       if e.agent == agent then
@@ -175,7 +196,18 @@ def Ledger.ownValue (l : Ledger) (p : Prices) (agent : Name) : Float :=
         | .conceptAttracted _ => v := v + p.attracted
         | .llmCalled => pure ()
         | .nlRefused => v := v + p.refused
-    return v
+        | .curatorBoost =>
+          curator := curator + p.curatorNudge / (1.0 + curatorSeen / p.curatorDecay)
+          curatorSeen := curatorSeen + 1.0
+        | .curatorDamp =>
+          curator := curator - p.curatorNudge / (1.0 + curatorSeen / p.curatorDecay)
+          curatorSeen := curatorSeen + 1.0
+        | .curatorFlagged tier =>
+          v := v - match tier with
+            | .cheap | .standard => p.admitted
+            | .deep => p.admittedDeep
+            | .escalated => p.admittedEscalated
+    return v + min p.curatorCap (max (-p.curatorCap) curator)
 
 def Ledger.attention (l : Ledger) (agent : Name) : Nat :=
   l.events.foldl
@@ -209,6 +241,9 @@ structure AgentCounts where
   attracted : Nat := 0
   llmCalls : Nat := 0
   nlRefused : Nat := 0
+  curatorBoosts : Nat := 0
+  curatorDamps : Nat := 0
+  curatorFlags : Nat := 0
 
 def Ledger.counts (l : Ledger) (agent : Name) : AgentCounts :=
   l.events.foldl (init := {}) fun c e =>
@@ -233,6 +268,9 @@ def Ledger.counts (l : Ledger) (agent : Name) : AgentCounts :=
     | .conceptAttracted _ => { c with attracted := c.attracted + 1 }
     | .llmCalled => { c with llmCalls := c.llmCalls + 1 }
     | .nlRefused => { c with nlRefused := c.nlRefused + 1 }
+    | .curatorBoost => { c with curatorBoosts := c.curatorBoosts + 1 }
+    | .curatorDamp => { c with curatorDamps := c.curatorDamps + 1 }
+    | .curatorFlagged _ => { c with curatorFlags := c.curatorFlags + 1 }
 
 def AgentCounts.describe (c : AgentCounts) : String :=
   s!"{c.admitted} admitted, {c.refuted} refuted, {c.dups} merged, \
@@ -244,7 +282,10 @@ def AgentCounts.describe (c : AgentCounts) : String :=
 {c.inventedEdges} vocabulary credits"
   else "") ++
   (if c.llmCalls > 0 then s!", {c.llmCalls} llm calls" else "") ++
-  (if c.nlRefused > 0 then s!", {c.nlRefused} nl-refused" else "")
+  (if c.nlRefused > 0 then s!", {c.nlRefused} nl-refused" else "") ++
+  (if c.curatorBoosts + c.curatorDamps + c.curatorFlags > 0 then
+    s!", curated {c.curatorBoosts}+/{c.curatorDamps}-/{c.curatorFlags}⚑"
+  else "")
 
 end Runtime
 end Eureka
