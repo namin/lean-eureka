@@ -18,3 +18,6 @@ open Eureka.Runtime
   IO.println "corpus:"
   for f in corpus.facts do
     IO.println s!"  {f.name} : {toString (← Lean.Meta.ppExpr f.stmt)}"
+  materializeIfConfigured "Nat" "Disco" corpus
+    (header := "Producing run: Disco.lean — the Nat algebra demo, template \
+heuristics, three generations.") (imports := [])

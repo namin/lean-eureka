@@ -4,6 +4,7 @@ import Eureka.Prover
 import Eureka.Heuristics
 import Eureka.Loop
 import Eureka.Concepts
+import Eureka.Materialize
 import Eureka.Worth
 import Eureka.Prove
 import Eureka.LLM

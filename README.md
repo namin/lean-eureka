@@ -384,7 +384,14 @@ lake env lean EvolveRun.lean   # live: the LLM as one agent in the population
 lake build EurekaMathlib && lake env lean MatroidStub.lean  # matroid microcosm (Mathlib)
 lake env lean MatroidRefuteStub.lean  # the refuter: 32 of 42 opens die, gate-certified
 lake env lean MatroidEconomyRun.lean  # starvation experiment: refuter on vs off, same worth
+lake env lean MaterializeStub.lean    # materialization: render, round-trip, quarantine (scratch dir)
 ```
+
+Wired drivers materialize their corpus into the sibling library project,
+[eureka-corpus](https://github.com/namin/eureka-corpus)
+(DESIGN_MATERIALIZE.md): `../eureka-corpus` is the default destination when
+it exists; `EUREKA_CORPUS_DIR` overrides it, and setting it empty disables
+materialization. Run-file headers are stamped with the producing commit.
 
 Toolchain: `leanprover/lean4:v4.30.0`. The Lake package declares a Mathlib
 dependency; the default target imports only Lean itself, and the
@@ -545,5 +552,14 @@ Mathlib-importing demos are separated into the `EurekaMathlib` layer
       transparency). Stepper iteration: richer move sets, bigger
       budgets, if the comparison instrument is pursued. Graph booth
       (`GraphGrandRun`) as the live extension of the generalization arc.
+- [x] Materialization (DESIGN_MATERIALIZE.md): a run's corpus rendered to
+      the sibling [eureka-corpus](https://github.com/namin/eureka-corpus)
+      Lake project — per-fact round-trip
+      check at emission, quarantine for anything leaning on run-local
+      litter, per-run namespaces (cumulative, nothing overwritten),
+      provenance doc comments from the new `origin`/`rung`/`knownAs` fact
+      metadata; the sibling's `lake build` plus its own axiom audit
+      re-check the rendered artifact from scratch (`Eureka/Materialize.lean`,
+      `MaterializeStub.lean` in CI, drivers wired via `EUREKA_CORPUS_DIR`)
 - [ ] Reflective modification of worth/policy *through a gate one level up*
       (today the gates and the worth function are fixed; see lean-keep)
