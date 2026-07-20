@@ -13,6 +13,10 @@ Run with `lake env lean MatroidDiscoRun.lean`.
 
 open Lean Eureka.Runtime
 
+-- The command ceiling, raised for loop overhead (reply parsing, dedup
+-- scans, printing) across the booth rounds; the prover stays pinned to
+-- `judgeHeartbeats` per judgment regardless (see `Eureka/Loop.lean`).
+set_option maxHeartbeats 400000000 in
 #eval show MetaM Unit from do
   let carrier := `Matroid
   let preds ← collectPredicates carrier
@@ -33,3 +37,6 @@ open Lean Eureka.Runtime
   IO.println s!"final corpus ({corpus.facts.size} facts, every one kernel-gated):"
   for f in corpus.facts do
     IO.println s!"  {f.name} : {toString (← Meta.ppExpr f.stmt)}"
+  materializeIfConfigured "Matroid" "DiscoRun" corpus
+    (header := "Producing run: MatroidDiscoRun.lean — template agents over \
+extracted Matroid predicates plus LLM booth rounds.")

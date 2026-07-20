@@ -174,7 +174,9 @@ def aliasProbe (known : Array KnownLemma) (carrier : Name) (shape : PredShape)
                       s!"unfold {invented} {P.name}; aesop"] do
             if let some pf ← tryTacticRung tac c.stmt then
               let nm ← freshName c.name
-              if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+              let p : FactProposal := { name := nm, stmt := c.stmt, proof := pf,
+                                        origin := c.origin, rung := s!"by {tac}" }
+              if let some f ← commitFact p then
                 return ({ corpus' with facts := corpus'.facts.push f },
                         some (P.name, s!"by {tac}"))
           -- Transitive: compose a direct step with a known iff bridging to
@@ -192,7 +194,11 @@ def aliasProbe (known : Array KnownLemma) (carrier : Name) (shape : PredShape)
             return (none : Option Expr)
           if let some (pf, bridge) ← tryKnownChain known c.stmt subProve then
             let nm ← freshName c.name
-            if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+            let p : FactProposal := { name := nm, stmt := c.stmt, proof := pf,
+                                      origin := c.origin,
+                                      rung := s!"chained via {bridge}",
+                                      knownAs := some bridge }
+            if let some f ← commitFact p then
               return ({ corpus' with facts := corpus'.facts.push f },
                       some (P.name, s!"chained via {bridge}"))
           return (corpus', none)

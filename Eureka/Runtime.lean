@@ -30,6 +30,11 @@ structure Fact where
   name : Name
   stmt : Expr
   proof : Expr
+  /-- Provenance, carried for materialization and reporting only — the
+  gate's checks never consult these fields. -/
+  origin : Name := .anonymous
+  rung : String := ""
+  knownAs : Option Name := none
   deriving Inhabited
 
 /-- The discovery corpus. -/
@@ -43,6 +48,10 @@ structure FactProposal where
   name : Name
   stmt : Expr
   proof : Expr
+  /-- Provenance, passed through to the admitted `Fact` (metadata only). -/
+  origin : Name := .anonymous
+  rung : String := ""
+  knownAs : Option Name := none
 
 /-- A heuristic is arbitrary metaprogram code that proposes facts. -/
 structure Heuristic where
@@ -71,7 +80,8 @@ def screenFact (p : FactProposal) : MetaM (Option Fact) := do
       catch _ => return false)
     (fun _ => return false)
   unless ok do return none
-  return some { name := p.name, stmt := p.stmt, proof := p.proof }
+  return some { name := p.name, stmt := p.stmt, proof := p.proof,
+                origin := p.origin, rung := p.rung, knownAs := p.knownAs }
 
 /-- The gate: screen, submit to the kernel as a theorem, then audit the
 axioms the accepted proof depends on. On any refusal `commitFact`'s own

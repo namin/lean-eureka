@@ -584,11 +584,14 @@ def judgeConceptFact (ctx : ProbeCtx) (corpus : Corpus) (c : Conjecture)
     MetaM (Corpus × Outcome) := withCurrHeartbeats do
   if let some (negStmt, pf, witness) ← refuter c.stmt then
     let nm ← freshName (c.name.appendAfter "_refuted")
-    if let some f ← commitFact { name := nm, stmt := negStmt, proof := pf } then
+    let p : FactProposal := { name := nm, stmt := negStmt, proof := pf,
+                              origin := c.origin, rung := s!"refuted: {witness}" }
+    if let some f ← commitFact p then
       return ({ corpus with facts := corpus.facts.push f }, .refuted witness)
   if let some (pf, how) ← ctx.withBudget <| probeProve ctx corpus c.stmt then
     let nm ← freshName c.name
-    match ← commitFact { name := nm, stmt := c.stmt, proof := pf } with
+    match ← commitFact { name := nm, stmt := c.stmt, proof := pf,
+                         origin := c.origin, rung := how } with
     | some f =>
       return ({ corpus with facts := corpus.facts.push f }, .admitted f how)
     | none => return (corpus, .refusedAtGate)
@@ -609,17 +612,23 @@ def escalate (deep : ProbeCtx) (corpus : Corpus) (c : Conjecture)
     MetaM (Corpus × Outcome) := withCurrHeartbeats do
   if let some (negStmt, pf, witness) ← refuter c.stmt then
     let nm ← freshName (c.name.appendAfter "_refuted")
-    if let some f ← commitFact { name := nm, stmt := negStmt, proof := pf } then
+    let p : FactProposal := { name := nm, stmt := negStmt, proof := pf,
+                              origin := c.origin, rung := s!"refuted: {witness}" }
+    if let some f ← commitFact p then
       return ({ corpus with facts := corpus.facts.push f }, .refuted witness)
   if let some (pf, how) ← deep.withBudget <| probeProve deep corpus c.stmt then
     let nm ← freshName c.name
-    if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+    let p : FactProposal := { name := nm, stmt := c.stmt, proof := pf,
+                              origin := c.origin, rung := s!"escalated: {how}" }
+    if let some f ← commitFact p then
       return ({ corpus with facts := corpus.facts.push f },
               .admitted f s!"escalated: {how}")
   for tac in inductionRungs do
     if let some pf ← tryTacticClosed tac c.stmt then
       let nm ← freshName c.name
-      if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+      let p : FactProposal := { name := nm, stmt := c.stmt, proof := pf,
+                                origin := c.origin, rung := "escalated: induction" }
+      if let some f ← commitFact p then
         return ({ corpus with facts := corpus.facts.push f },
                 .admitted f "escalated: induction")
   return (corpus, .stillOpen)

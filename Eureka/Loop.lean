@@ -66,7 +66,8 @@ def judge (known : Array KnownLemma) (corpus : Corpus) (c : Conjecture)
     withCurrHeartbeats do
   if let some (negStmt, pf, witness) ← refuter c.stmt then
     let nm ← freshName (c.name.appendAfter "_refuted")
-    match ← commitFact { name := nm, stmt := negStmt, proof := pf } with
+    match ← commitFact { name := nm, stmt := negStmt, proof := pf,
+                         origin := c.origin, rung := s!"refuted: {witness}" } with
     | some f =>
       return ({ corpus with facts := corpus.facts.push f }, .refuted witness)
     | none =>
@@ -77,7 +78,8 @@ def judge (known : Array KnownLemma) (corpus : Corpus) (c : Conjecture)
   | .stillOpen => return (corpus, .stillOpen)
   | .proved pf rung knownAs =>
     let nm ← freshName c.name
-    match ← commitFact { name := nm, stmt := c.stmt, proof := pf } with
+    match ← commitFact { name := nm, stmt := c.stmt, proof := pf,
+                         origin := c.origin, rung := rung, knownAs := knownAs } with
     | some f =>
       let note := match knownAs with
         | some k => s!"grounded: {k}"

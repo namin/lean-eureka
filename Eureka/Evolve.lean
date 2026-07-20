@@ -470,7 +470,10 @@ refused: {violation}"
                 llmLeft := llmLeft - 1
                 if let some (pf, _) ← proveByRepair call deep.known c.stmt then
                   let nm ← freshName c.name
-                  if let some f ← commitFact { name := nm, stmt := c.stmt, proof := pf } then
+                  let p : FactProposal := { name := nm, stmt := c.stmt, proof := pf,
+                                            origin := c.origin,
+                                            rung := "escalated: llm-repair" }
+                  if let some f ← commitFact p then
                     corpus := { corpus with facts := corpus.facts.push f }
                     outcome := .admitted f "escalated: llm-repair"
           match outcome with
