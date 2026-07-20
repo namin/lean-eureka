@@ -157,12 +157,14 @@ deterministically on the `Nat` corpus, writing to a temp dir — the
 One call at the end of each run driver:
 
 ```lean
-if let some dir ← IO.getEnv "EUREKA_CORPUS_DIR" then
-  let report ← materialize { dir, domain := "Matroid", runId := …, header := … } pool corpus
-  IO.println report.summary
+materializeIfConfigured "Matroid" "DiscoRun" corpus (pool := pool) (header := …)
 ```
 
-Unset means no materialization — live runs behave exactly as today.
+The destination defaults to `../eureka-corpus` when that directory exists;
+`EUREKA_CORPUS_DIR` overrides it, and setting it to the empty string
+disables materialization. The header is stamped with the producing
+lean-eureka commit (`git rev-parse`, best-effort, dirty trees named as
+such).
 
 ## Status (as built)
 

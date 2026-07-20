@@ -387,10 +387,11 @@ lake env lean MatroidEconomyRun.lean  # starvation experiment: refuter on vs off
 lake env lean MaterializeStub.lean    # materialization: render, round-trip, quarantine (scratch dir)
 ```
 
-Set `EUREKA_CORPUS_DIR=../eureka-corpus` when running a driver to
-materialize its corpus into the sibling library project,
+Wired drivers materialize their corpus into the sibling library project,
 [eureka-corpus](https://github.com/namin/eureka-corpus)
-(DESIGN_MATERIALIZE.md).
+(DESIGN_MATERIALIZE.md): `../eureka-corpus` is the default destination when
+it exists; `EUREKA_CORPUS_DIR` overrides it, and setting it empty disables
+materialization. Run-file headers are stamped with the producing commit.
 
 Toolchain: `leanprover/lean4:v4.30.0`. The Lake package declares a Mathlib
 dependency; the default target imports only Lean itself, and the

@@ -257,14 +257,38 @@ depth {c.depth}{docSafe merged} -/\n"
   return { file, runNs, conceptsWritten := concepts.size,
            factsWritten := facts.size, quarantined }
 
-/-- The driver hook: materialize iff `EUREKA_CORPUS_DIR` is set, so live
-runs behave exactly as before when it is not. -/
+/-- The producing repo's commit, for the run-file header. Best-effort:
+empty when git is unavailable. The clean/dirty verdict is always explicit —
+an unqualified stamp would be ambiguous — and "dirty" means modified
+*tracked* files: stray untracked files cannot change what a clean checkout
+of the commit builds. -/
+def gitStamp : IO String := do
+  try
+    let sha ← IO.Process.output { cmd := "git", args := #["rev-parse", "--short", "HEAD"] }
+    if sha.exitCode != 0 then return ""
+    let dirty ← IO.Process.output
+      { cmd := "git", args := #["status", "--porcelain", "--untracked-files=no"] }
+    let verdict := if dirty.exitCode != 0 then "tree state unknown"
+      else if dirty.stdout.trim.isEmpty then "clean"
+      else "dirty: tracked files modified"
+    return s!"lean-eureka commit: {sha.stdout.trim} ({verdict})"
+  catch _ => return ""
+
+/-- The driver hook. The destination is `EUREKA_CORPUS_DIR` if set
+(set it empty to disable materialization), else `../eureka-corpus` if that
+directory exists, else materialization is skipped. The header is stamped
+with the producing commit. -/
 def materializeIfConfigured (domain runId : String) (corpus : Corpus)
     (pool : ConceptPool := {}) (header : String := "")
     (imports : List String := ["Mathlib"]) : MetaM Unit := do
-  let some dir ← IO.getEnv "EUREKA_CORPUS_DIR" | return ()
-  let report ← materialize
-    { dir := System.FilePath.mk dir, domain, runId, header, imports } pool corpus
+  let defaultDir : System.FilePath := ".." / "eureka-corpus"
+  let dir? ← match (← IO.getEnv "EUREKA_CORPUS_DIR") with
+    | some d => pure (if d.isEmpty then none else some (System.FilePath.mk d))
+    | none => pure (if ← defaultDir.isDir then some defaultDir else none)
+  let some dir := dir? | return ()
+  let stamp ← gitStamp
+  let header := if stamp.isEmpty then header else s!"{header}\n{stamp}"
+  let report ← materialize { dir, domain, runId, header, imports } pool corpus
   IO.println report.summary
   for (n, reason) in report.quarantined do
     IO.println s!"  quarantined {n}: {reason}"

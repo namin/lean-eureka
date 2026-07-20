@@ -16,7 +16,10 @@ Budgets are env-overridable (defaults in parentheses):
 `EUREKA_BOOTH_ROUNDS` (2), `EUREKA_BOOTH_PER_ROUND` (6). E.g.
 
   EUREKA_BOOTH_ROUNDS=5 EUREKA_BOOTH_PER_ROUND=10 \
-  EUREKA_CORPUS_DIR=../eureka-corpus lake env lean MatroidDiscoRun.lean
+  lake env lean MatroidDiscoRun.lean
+
+The corpus materializes to `../eureka-corpus` when present
+(`EUREKA_CORPUS_DIR` overrides; empty disables).
 -/
 
 open Lean Eureka.Runtime
